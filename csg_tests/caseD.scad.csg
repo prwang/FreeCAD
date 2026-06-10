@@ -1,0 +1,21 @@
+linear_extrude(height = 2.2, center = false, convexity = 1, scale = [1, 1], $fn = 32, $fa = 12, $fs = 2) {
+	difference() {
+		square(size = [50, 20], center = true);
+		intersection() {
+			difference() {
+				square(size = [50, 20], center = true);
+				circle($fn = 32, $fa = 12, $fs = 2, r = 6);
+			}
+			difference() {
+				square(size = [50, 20], center = true);
+				offset(r = 3, $fn = 32, $fa = 12, $fs = 2) {
+					polygon(points = [[-16, -0.0005], [-5.5, -0.0005], [-5.5, 0.0005], [-16, 0.0005]], paths = undef, convexity = 1);
+				}
+			}
+		}
+		multmatrix([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+			circle($fn = 32, $fa = 12, $fs = 2, r = 2);
+		}
+	}
+}
+

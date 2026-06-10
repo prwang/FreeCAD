@@ -1,0 +1,50 @@
+group() {
+	multmatrix([[1, 0, 0, -42.3], [0, 1, 0, 3.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+		difference() {
+			linear_extrude(height = 2.286, center = true, convexity = 1, scale = [1, 1], $fn = 160, $fa = 12, $fs = 2) {
+				group() {
+					offset(r = 5, $fn = 160, $fa = 12, $fs = 2) {
+						offset(r = -5, $fn = 160, $fa = 12, $fs = 2) {
+							square(size = [146, 113], center = true);
+						}
+					}
+				}
+			}
+			group() {
+				multmatrix([[1, 0, 0, -68], [0, 1, 0, -51.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+					cylinder($fn = 160, $fa = 12, $fs = 2, h = 3.286, r1 = 1.6, r2 = 1.6, center = true);
+				}
+				multmatrix([[1, 0, 0, -68], [0, 1, 0, -21.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+					cylinder($fn = 160, $fa = 12, $fs = 2, h = 3.286, r1 = 1.6, r2 = 1.6, center = true);
+				}
+				multmatrix([[1, 0, 0, -68], [0, 1, 0, 51.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+					cylinder($fn = 160, $fa = 12, $fs = 2, h = 3.286, r1 = 1.6, r2 = 1.6, center = true);
+				}
+				multmatrix([[1, 0, 0, 68], [0, 1, 0, 51.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+					cylinder($fn = 160, $fa = 12, $fs = 2, h = 3.286, r1 = 1.6, r2 = 1.6, center = true);
+				}
+				multmatrix([[1, 0, 0, 68], [0, 1, 0, -51.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+					cylinder($fn = 160, $fa = 12, $fs = 2, h = 3.286, r1 = 1.6, r2 = 1.6, center = true);
+				}
+				multmatrix([[1, 0, 0, 68], [0, 1, 0, -21.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+					cylinder($fn = 160, $fa = 12, $fs = 2, h = 3.286, r1 = 1.6, r2 = 1.6, center = true);
+				}
+			}
+			group() {
+				multmatrix([[1, 0, 0, -58], [0, 1, 0, -31.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+					cylinder($fn = 160, $fa = 12, $fs = 2, h = 3.286, r1 = 1.6, r2 = 1.6, center = true);
+				}
+				multmatrix([[1, 0, 0, -58], [0, 1, 0, 24.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+					cylinder($fn = 160, $fa = 12, $fs = 2, h = 3.286, r1 = 1.6, r2 = 1.6, center = true);
+				}
+				multmatrix([[1, 0, 0, 58], [0, 1, 0, -31.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+					cylinder($fn = 160, $fa = 12, $fs = 2, h = 3.286, r1 = 1.6, r2 = 1.6, center = true);
+				}
+				multmatrix([[1, 0, 0, 58], [0, 1, 0, 24.5], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+					cylinder($fn = 160, $fa = 12, $fs = 2, h = 3.286, r1 = 1.6, r2 = 1.6, center = true);
+				}
+			}
+		}
+	}
+}
+

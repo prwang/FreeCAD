@@ -1,6 +1,14 @@
 # -------------------------------- Qt --------------------------------
 
-set(FREECAD_QT_COMPONENTS Core Concurrent Network Xml)
+# LinguistTools is needed even for BUILD_GUI=OFF: src/App calls
+# qt_find_and_add_translation(), which requires qt_add_translation()
+set(FREECAD_QT_COMPONENTS Core Concurrent Network Xml LinguistTools)
+
+# TechDraw's App (non-Gui) library uses QColor/QPainterPath and links
+# QtWidgets, so those components are needed even when BUILD_GUI=OFF
+if(NOT BUILD_GUI AND BUILD_TECHDRAW)
+    list(APPEND FREECAD_QT_COMPONENTS Gui Widgets)
+endif()
 
 if (FREECAD_QT_MAJOR_VERSION EQUAL 5)
     message(WARNING [[
