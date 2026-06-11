@@ -56,12 +56,34 @@ SET(OpenSCADTests_ALL
 	${OpenSCADTestsFiles_SRCS}
 	)
 
+# headless CSG->STEP conversion & validation harness (see its README.md);
+# ships with the package so deployed installs can run the conversion flow
+SET(OpenSCADCsgIsolation_SRCS
+    csg_isolation/README.md
+    csg_isolation/csg2step.py
+    csg_isolation/run_all.py
+    csg_isolation/validate.py
+    csg_isolation/trace_null.py
+    csg_isolation/minimize.py
+)
+
+SET(OpenSCADCsgIsolationCorpus_SRCS
+    csg_isolation/corpus/intersection_three_children.csg
+    csg_isolation/corpus/lazy_offset_chain.csg
+    csg_isolation/corpus/background_modifier.csg
+    csg_isolation/corpus/offset_fillet_closing.csg
+)
+
 IF (BUILD_GUI)
 	LIST(APPEND OpenSCADTests_ALL ${OpenSCADTestsGui_SRCS})
 ENDIF (BUILD_GUI)
 
 
-set(all_files ${OpenSCAD_SRCS})
+set(all_files
+    ${OpenSCAD_SRCS}
+    ${OpenSCADCsgIsolation_SRCS}
+    ${OpenSCADCsgIsolationCorpus_SRCS}
+)
 
 SET(OpenSCADGuiIcon_SVG
     Resources/icons/OpenSCADWorkbench.svg
@@ -107,6 +129,9 @@ INSTALL(
     DESTINATION
        "${CMAKE_INSTALL_DATADIR}/Mod/OpenSCAD/Resources/icons"
 )
+
+INSTALL(FILES ${OpenSCADCsgIsolation_SRCS} DESTINATION Mod/OpenSCAD/csg_isolation)
+INSTALL(FILES ${OpenSCADCsgIsolationCorpus_SRCS} DESTINATION Mod/OpenSCAD/csg_isolation/corpus)
 
 INSTALL(FILES ${OpenSCADTests_SRCS} DESTINATION Mod/OpenSCAD/OpenSCADTest)
 INSTALL(FILES ${OpenSCADTestsApp_SRCS} DESTINATION Mod/OpenSCAD/OpenSCADTest/app)

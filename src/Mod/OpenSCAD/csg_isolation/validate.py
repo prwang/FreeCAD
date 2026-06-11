@@ -15,9 +15,33 @@ Usage: python3 validate.py [--tests DIR] [--out DIR] [--timeout S]
 import argparse
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def find_openscad():
+    """$CSG2STEP_OPENSCAD, then $PATH, then the standard Windows install
+    locations (mirrors OpenSCADUtils.searchforopenscadexe, which cannot be
+    imported here because this script runs without FreeCAD)."""
+    env = os.environ.get("CSG2STEP_OPENSCAD")
+    if env:
+        return env
+    cand = shutil.which("openscad")
+    if cand:
+        return cand
+    if sys.platform == "win32":
+        for base in (os.environ.get("ProgramW6432"),
+                     os.environ.get("Programfiles(x86)"),
+                     os.environ.get("ProgramFiles")):
+            if base:
+                p = os.path.join(base, "OpenSCAD", "openscad.exe")
+                if os.path.isfile(p):
+                    return p
+    return None
 
 
 def read_stl(path):
@@ -92,10 +116,10 @@ def wrap_2d(csg, out, name):
     return path
 
 
-def render_reference(csg, ref_stl, timeout):
+def render_reference(openscad, csg, ref_stl, timeout):
     if os.path.isfile(ref_stl) and os.path.getmtime(ref_stl) > os.path.getmtime(csg):
         return None  # cached
-    p = subprocess.run(["openscad", "-o", ref_stl, csg],
+    p = subprocess.run([openscad, "-o", ref_stl, csg],
                        capture_output=True, text=True, timeout=timeout)
     if p.returncode != 0 or not os.path.isfile(ref_stl):
         return "openscad failed: " + (p.stderr or "").strip()[-200:]
@@ -104,8 +128,11 @@ def render_reference(csg, ref_stl, timeout):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tests", default="/work/FreeCAD/csg_tests")
-    ap.add_argument("--out", default="/work/FreeCAD/csg_out")
+    ap.add_argument("--tests", default=os.path.join(HERE, "corpus"),
+                    help="directory of .csg cases (default: bundled corpus)")
+    ap.add_argument("--out", default=os.path.join(os.getcwd(), "csg_out"))
+    ap.add_argument("--openscad", default=None,
+                    help="openscad binary for reference renders (default: auto-detect)")
     ap.add_argument("--timeout", type=int, default=180)
     ap.add_argument("--vol-tol", type=float, default=2.0,
                     help="max |dV|/Vref in percent")
@@ -114,6 +141,12 @@ def main():
     ap.add_argument("names", nargs="*")
     args = ap.parse_args()
 
+    if not args.openscad:
+        args.openscad = find_openscad()
+        if not args.openscad:
+            sys.exit("openscad not found: pass --openscad or set $CSG2STEP_OPENSCAD")
+
+    os.makedirs(args.out, exist_ok=True)
     names = args.names or sorted(
         os.path.splitext(f)[0] for f in os.listdir(args.tests)
         if f.endswith(".csg"))
@@ -137,7 +170,7 @@ def main():
         fc = os.path.join(args.out, name + ".stl")
         rec = {"name": name}
         try:
-            err = render_reference(csg, ref, args.timeout)
+            err = render_reference(args.openscad, csg, ref, args.timeout)
         except subprocess.TimeoutExpired:
             err = "openscad timeout"
         if err:

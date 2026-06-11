@@ -12,12 +12,57 @@ changes need a `ninja OpenSCAD` (file copy) but **no rebuild**, and all
 diagnosis can be done by monkeypatching, without touching the source tree.
 
 ```
-csg_tests/*.csg  --(csg2step.py under FreeCADCmd, 1 process/file)-->  csg_out/<name>.step + .stl
-csg_tests/*.csg  --(openscad -o)------------------------------------>  csg_out/<name>.ref.stl
-                 --(validate.py: volume + bbox compare)------------->  csg_out/validation.json
+corpus/*.csg  --(csg2step.py under FreeCADCmd, 1 process/file)-->  csg_out/<name>.step + .stl
+corpus/*.csg  --(openscad -o)------------------------------------>  csg_out/<name>.ref.stl
+              --(validate.py: volume + bbox compare)------------->  csg_out/validation.json
 ```
 
-## Prerequisites
+## Deployment
+
+The harness lives at `src/Mod/OpenSCAD/csg_isolation/` and is wired into the
+module's CMake (`fc_copy_sources` + `INSTALL` rules in
+`src/Mod/OpenSCAD/CMakeLists.txt`), so it ships at
+`<prefix>/Mod/OpenSCAD/csg_isolation/` in **every** package format — all
+packaging flows (downstream Debian/Ubuntu debs, the in-tree Fedora spec,
+conda/rattler, Windows NSIS and pixi bundles) package the CMake install tree
+wholesale. `run_all.py` locates `FreeCADCmd` relative to that layout
+(`<prefix>/bin` is a sibling of `<prefix>/Mod`), falling back to
+`$FREECADCMD` and `$PATH` (which covers the Debian `/usr/bin` symlink and
+the conda `freecadcmd` rename). Output goes to `./csg_out` under the current
+working directory — the install tree is read-only.
+
+On a deployed system the conversion flow is exactly:
+
+```sh
+python3 <prefix>/Mod/OpenSCAD/csg_isolation/run_all.py             # bundled corpus
+python3 <prefix>/Mod/OpenSCAD/csg_isolation/validate.py            # needs openscad
+python3 <prefix>/Mod/OpenSCAD/csg_isolation/run_all.py my/*.csg    # your own files
+```
+
+Packaged builds are full GUI builds: the `Ext/PySide` redirect and
+`Mod/Draft/Draft_rc.py` are generated and installed by the normal build, so
+none of the headless-build shims below are needed at deployment time.
+
+## The bundled corpus — `corpus/`
+
+Deliberately **minimal**: one hand-written `.csg` per fixed importer-defect
+class, each verified to FAIL the original importer and MATCH ground truth
+with the fixes (the red run against the pre-fix importer: 2 × FAIL@parse,
+2 × MISMATCH at 12.5 % / 5.2 % volume error):
+
+| case | defect it guards (numbering below) |
+|---|---|
+| `intersection_three_children.csg` | 1 — `intersection()` ≠ 2 children crash |
+| `lazy_offset_chain.csg` | 2 — null-shape crash through lazy offset/extrude chains |
+| `background_modifier.csg` | 4 — `%` subtree must be excluded from the result |
+| `offset_fillet_closing.csg` | 6 — 2D fragmentation silently losing `offset` fillets |
+
+Defects 3, 5, 7 and 8 are guarded by unit tests (`OpenSCADTest`) and by the
+development corpus. That larger corpus (31+ real-world cases in `csg_tests/`
+at the repo root) is intentionally **not** shipped; point `--tests` at it
+when working in the repo.
+
+## Prerequisites (development container; none apply to deployed packages)
 
 * Headless FreeCAD build (`build/headless`, `BUILD_GUI=OFF`). Two
   `cMake/FreeCAD_Helpers/SetupQt.cmake` fixes in this branch are required to
@@ -31,9 +76,10 @@ csg_tests/*.csg  --(openscad -o)------------------------------------>  csg_out/<
     re-export PySide6 (Draft imports PySide unconditionally);
   * `build/headless/Mod/Draft/Draft_rc.py` — generate with
     `pyside6-rcc src/Mod/Draft/Resources/Draft.qrc -o ...`.
-* `openscad` on `$PATH` (ground-truth renderer; also used by importCSG for
-  `.scad` input and the hull/minkowski path). Override with
-  `CSG2STEP_OPENSCAD`.
+* `openscad` (ground-truth renderer; also used by importCSG for `.scad`
+  input and the hull/minkowski path). Discovery order:
+  `$CSG2STEP_OPENSCAD`, `$PATH`, then the standard Windows install dirs;
+  or pass `validate.py --openscad`.
 
 FreeCADCmd gotchas the harness already works around: scripts never run with
 `__name__ == "__main__"`, and positional arguments are opened as documents —
@@ -42,19 +88,23 @@ so all scripts take their input via **environment variables**.
 ## Usage
 
 ```sh
-# convert the whole corpus (one FreeCADCmd subprocess per file):
-python3 tools/csg_isolation/run_all.py --timeout 120
+HARNESS=build/headless/Mod/OpenSCAD/csg_isolation   # or source/install dir
+
+# convert the bundled corpus (one FreeCADCmd subprocess per file):
+python3 $HARNESS/run_all.py --timeout 120
 
 # validate every conversion against an openscad-rendered reference:
-python3 tools/csg_isolation/validate.py --timeout 300
+python3 $HARNESS/validate.py --timeout 300
 
-# single case, by path:
-python3 tools/csg_isolation/run_all.py /work/FreeCAD/csg_tests/caseF.scad.csg
-python3 tools/csg_isolation/validate.py caseF.scad
+# the full development corpus / single cases:
+python3 $HARNESS/run_all.py  --tests csg_tests --timeout 120
+python3 $HARNESS/validate.py --tests csg_tests --timeout 300
+python3 $HARNESS/run_all.py  csg_tests/caseF.scad.csg
+python3 $HARNESS/validate.py --tests csg_tests caseF.scad
 ```
 
-Always run `run_all.py` before `validate.py`: validation reads
-`csg_out/summary.json` to know which results are 2D (see below).
+Always run `run_all.py` before `validate.py` (same `--out`): validation
+reads `csg_out/summary.json` to know which results are 2D (see below).
 
 ## Components
 
@@ -87,7 +137,7 @@ OpenSCAD cannot export 2D geometry to STL, so 2D cases are compared as
 `linear_extrude(height = 1) { <original csg> }` wrapper
 (`csg_out/<name>.2dref.csg`). Volume comparison then equals area comparison.
 
-## Corpus — `csg_tests/`
+## Development corpus — `csg_tests/` (repo root, not shipped)
 
 * `*.csg` — what the harness runs. `.csg` is OpenSCAD's compiled AST (all
   arguments explicit, constants folded); it is valid OpenSCAD source, so
@@ -108,9 +158,9 @@ volume tolerance. Do not "fix" this.
 
 1. `run_all.py` flags a case (`FAIL@stage` / `SUSPECT` / validation
    `MISMATCH`). Read `csg_out/<name>.log`.
-2. `CSG2STEP_IN=csg_tests/<name>.csg FreeCADCmd tools/csg_isolation/trace_null.py`
+2. `CSG2STEP_IN=csg_tests/<name>.csg FreeCADCmd src/Mod/OpenSCAD/csg_isolation/trace_null.py`
    — find the first object that goes null/invalid and its subtree.
-3. Bisect: `python3 tools/csg_isolation/minimize.py <file.csg> /tmp/mini 0`
+3. Bisect: `python3 src/Mod/OpenSCAD/csg_isolation/minimize.py <file.csg> /tmp/mini 0`
    splits the node at path `0` (use dotted paths like `0.2` to go deeper)
    into one file per child subtree; re-run `csg2step.py` on each, keep the
    smallest failing one, repeat. Hand-simplify the survivor into a unit

@@ -1,0 +1,12 @@
+group() {
+	linear_extrude(height = 2, center = true, convexity = 1, scale = [1, 1], $fn = 16, $fa = 12, $fs = 2) {
+		offset(r = 5, $fn = 16, $fa = 12, $fs = 2) {
+			square(size = [10, 30], center = true);
+		}
+	}
+	linear_extrude(height = 2, center = true, convexity = 1, scale = [1, 1], $fn = 16, $fa = 12, $fs = 2) {
+		offset(r = 5, $fn = 16, $fa = 12, $fs = 2) {
+			square(size = [10, 30], center = true);
+		}
+	}
+}

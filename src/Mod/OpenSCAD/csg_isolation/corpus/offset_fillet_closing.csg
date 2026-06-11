@@ -1,0 +1,8 @@
+offset(r = -3, $fn = 32, $fa = 12, $fs = 2) {
+	offset(r = 3, $fn = 32, $fa = 12, $fs = 2) {
+		union() {
+			square(size = [20, 4], center = true);
+			square(size = [4, 20], center = true);
+		}
+	}
+}

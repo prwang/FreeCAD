@@ -31,7 +31,7 @@ without it.
 
 Beyond the primitive/transform import tests, the suite carries regression
 tests for importer bugs found by the offline conversion harness
-(`tools/csg_isolation/README.md` documents the bugs and the harness):
+(`src/Mod/OpenSCAD/csg_isolation/README.md` documents the bugs and the harness):
 
 * `test_import_intersection_*` — `intersection()` child-count handling
   (the eager `.Shape` compute used to crash for ≠ 2 children).
@@ -54,4 +54,4 @@ tests for importer bugs found by the offline conversion harness
 
 When fixing an importer bug, add the regression here and red/green-verify
 it: stash the fix, confirm the test fails, restore, confirm green (the
-workflow is described in `tools/csg_isolation/README.md`).
+workflow is described in `src/Mod/OpenSCAD/csg_isolation/README.md`).

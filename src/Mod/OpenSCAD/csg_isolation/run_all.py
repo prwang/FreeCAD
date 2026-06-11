@@ -4,18 +4,44 @@ file (crash/hang isolation), and print a summary table.
 
 Usage: python3 run_all.py [--freecadcmd PATH] [--tests DIR] [--out DIR]
                           [--timeout SECONDS] [files...]
+
+Defaults are deployment-friendly: FreeCADCmd is located relative to this
+script (it ships at <prefix>/Mod/OpenSCAD/csg_isolation, so the binary is at
+<prefix>/bin), the test set defaults to the bundled minimal corpus/, and
+output goes to ./csg_out in the current directory.
 """
 
 import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MARKER = re.compile(r"CSG2STEP_RESULT_BEGIN\n(.*?)\nCSG2STEP_RESULT_END", re.S)
+
+
+def find_freecadcmd():
+    """Locate FreeCADCmd: $FREECADCMD, then <prefix>/bin next to this script
+    (the layout of both the build tree and every installed package), then
+    $PATH (covers the deb /usr/bin symlink and the conda 'freecadcmd')."""
+    env = os.environ.get("FREECADCMD")
+    if env:
+        return env
+    prefix = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+    exe = ".exe" if sys.platform == "win32" else ""
+    for name in ("FreeCADCmd" + exe, "freecadcmd" + exe):
+        cand = os.path.join(prefix, "bin", name)
+        if os.path.isfile(cand):
+            return cand
+    for name in ("FreeCADCmd", "freecadcmd"):
+        cand = shutil.which(name)
+        if cand:
+            return cand
+    return None
 
 
 def run_one(freecadcmd, csg, outdir, timeout):
@@ -53,13 +79,19 @@ def run_one(freecadcmd, csg, outdir, timeout):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--freecadcmd", default=os.environ.get(
-        "FREECADCMD", "/work/FreeCAD/build/headless/bin/FreeCADCmd"))
-    ap.add_argument("--tests", default="/work/FreeCAD/csg_tests")
-    ap.add_argument("--out", default="/work/FreeCAD/csg_out")
+    ap.add_argument("--freecadcmd", default=None,
+                    help="FreeCADCmd binary (default: auto-detect)")
+    ap.add_argument("--tests", default=os.path.join(HERE, "corpus"),
+                    help="directory of .csg cases (default: bundled corpus)")
+    ap.add_argument("--out", default=os.path.join(os.getcwd(), "csg_out"))
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("files", nargs="*")
     args = ap.parse_args()
+
+    if not args.freecadcmd:
+        args.freecadcmd = find_freecadcmd()
+        if not args.freecadcmd:
+            sys.exit("FreeCADCmd not found: pass --freecadcmd or set $FREECADCMD")
 
     files = args.files or sorted(
         os.path.join(args.tests, f) for f in os.listdir(args.tests)
