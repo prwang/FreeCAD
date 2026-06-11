@@ -109,7 +109,14 @@ def main():
     # record the leak — it is an importer bug in its own right.
     solid_roots = [o for o in roots
                    if not o.Shape.isNull() and len(o.Shape.Solids) > 0]
-    leaked = [o for o in roots if o not in solid_roots]
+    result["twoD"] = False
+    if solid_roots:
+        leaked = [o for o in roots if o not in solid_roots]
+    else:
+        # genuinely 2D model: the face roots ARE the result, not leaks
+        leaked = []
+        result["twoD"] = any(
+            not o.Shape.isNull() and o.Shape.Faces for o in roots)
     result["leaked_2d_roots"] = [o.Label for o in leaked]
     exportable = solid_roots or [o for o in roots if not o.Shape.isNull()]
     if not exportable:
@@ -135,7 +142,16 @@ def main():
     stl_out = os.path.splitext(outfile)[0] + ".stl"
     try:
         import Mesh
-        Mesh.export(exportable, stl_out)
+        if result["twoD"]:
+            # 2D result: mesh a 1mm extrusion; validate.py renders the
+            # openscad reference through the same linear_extrude wrapper
+            import Part
+            ext = doc.addObject("Part::Feature", "__stl_2d_extrude")
+            ext.Shape = Part.makeCompound(
+                [o.Shape.extrude(FreeCAD.Vector(0, 0, 1)) for o in exportable])
+            Mesh.export([ext], stl_out)
+        else:
+            Mesh.export(exportable, stl_out)
         result["stl"] = stl_out
     except BaseException as e:
         result["stl"] = None

@@ -269,12 +269,21 @@ def p_anymodifier(p):
 
 def p_statementwithmod(p):
     '''statementwithmod : anymodifier statement'''
-    # ignore the modifiers but add them to the label
     modifier = p[1]
-    obj = p[2]
-    if hasattr(obj, 'Label'):
-        obj.Label = modifier + obj.Label
-    p[0] = obj
+    objs = p[2]
+    if modifier == '%':
+        # OpenSCAD background modifier: shown in the preview only, excluded
+        # from the rendered result -> drop the subtree from the output
+        if printverbose: print("Background subtree dropped")
+        removesubtree(objs)
+        p[0] = []
+        return
+    # ignore the other modifiers but add them to the label
+    # (p[2] is a list of features, not a single feature)
+    for obj in objs:
+        if hasattr(obj, 'Label'):
+            obj.Label = modifier + obj.Label
+    p[0] = objs
 
 
 def p_part(p):
@@ -430,6 +439,12 @@ def p_offset_action(p):
         offset = float(p[3]['delta'])
     checkObjShape(subobj)
     if subobj.Shape.Volume == 0 :
+        # normalize the 2D region first: merge boolean face fragments and
+        # split single-edge full-circle wires, both of which break
+        # BRepOffsetAPI_MakeOffset (wrong/fragmented fillets resp. SIGSEGV)
+        if not isinstance(getattr(subobj, 'Proxy', None), UnifyFaces):
+            subobj = unifyFaces(subobj)
+            checkObjShape(subobj)
         newobj = doc.addObject("Part::Offset2D",'Offset2D')
         newobj.Source = subobj
         newobj.Value = offset
@@ -447,10 +462,17 @@ def p_offset_action(p):
 
 def checkObjShape(obj):
     if printverbose: print('Check Object Shape')
+    if isinstance(obj, (list, tuple)):
+        # parser actions carry lists of features; guard each element
+        # (a list used to silently skip the null-shape recompute below)
+        for subobj in obj:
+            checkObjShape(subobj)
+        return
     if hasattr(obj, 'Shape'):
         if obj.Shape.isNull():
             if printverbose: print('Shape is Null - recompute')
-            obj.recompute()
+            # recursive: the object's own inputs may be lazy/null too
+            obj.recompute(True)
         if obj.Shape.isNull():
             print(f'Recompute failed : {obj.Name}')
     else:
@@ -568,6 +590,45 @@ def p_error(p):
     if printverbose: print("Syntax error in input!")
     if printverbose: print(p)
 
+def addBoolean(typename, name):
+    """Add a Part boolean feature with refine disabled.
+
+    OpenSCAD geometry routinely contains tangent and near-coincident faces
+    (e.g. offset() results); Part's refine step (removeSplitter) can turn
+    those into self-intersecting shells, so imported booleans stay unrefined
+    regardless of the user's Mod/Part RefineModel default."""
+    obj = doc.addObject(typename, name)
+    if hasattr(obj, 'Refine'):
+        obj.Refine = False
+    return obj
+
+def is2DObjs(objs):
+    """True when every child is a computed, zero-volume (2D) shape."""
+    for obj in objs:
+        checkObjShape(obj)
+        if not hasattr(obj, 'Shape') or obj.Shape.isNull():
+            return False
+        if obj.Shape.Volume != 0:
+            return False
+    return True
+
+def unifyFaces(obj):
+    """Wrap a 2D boolean result so the face fragments that OCC booleans
+    produce are merged back into whole faces (OpenSCAD booleans operate on
+    regions; without this a downstream offset() offsets every fragment
+    separately and the fillet is lost)."""
+    newobj = doc.addObject("Part::FeaturePython", 'unify_' + obj.Name)
+    UnifyFaces(newobj, obj)
+    if gui:
+        if FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/OpenSCAD").\
+            GetBool('useViewProviderTree'):
+            from OpenSCADFeatures import ViewProviderTree
+            ViewProviderTree(newobj.ViewObject)
+        else:
+            newobj.ViewObject.Proxy = 0
+        obj.ViewObject.hide()
+    return newobj
+
 def fuse(lst,name):
     global doc
     if printverbose: print("Fuse")
@@ -579,14 +640,14 @@ def fuse(lst,name):
     # Is this Multi Fuse
     elif len(lst) > 2:
         if printverbose: print("Multi Fuse")
-        myfuse = doc.addObject('Part::MultiFuse',name)
+        myfuse = addBoolean('Part::MultiFuse',name)
         myfuse.Shapes = lst
         if gui:
             for subobj in myfuse.Shapes:
                 subobj.ViewObject.hide()
     else:
         if printverbose: print("Single Fuse")
-        myfuse = doc.addObject('Part::Fuse',name)
+        myfuse = addBoolean('Part::Fuse',name)
         myfuse.Base = lst[0]
         myfuse.Tool = lst[1]
         checkObjShape(myfuse.Base)
@@ -596,6 +657,8 @@ def fuse(lst,name):
             myfuse.Base.ViewObject.hide()
             myfuse.Tool.ViewObject.hide()
     myfuse.Placement = FreeCAD.Placement()
+    if len(lst) > 1 and is2DObjs(lst):
+        myfuse = unifyFaces(myfuse)
     return myfuse
 
 def p_empty_union_action(p):
@@ -626,7 +689,7 @@ def p_difference_action(p):
         p[0] = p[5]
     else:
 # Cut using Fuse
-        mycut = doc.addObject('Part::Cut',p[1])
+        mycut = addBoolean('Part::Cut',p[1])
         mycut.Base = p[5][0]
 #       Can only Cut two objects do we need to fuse extras
         if (len(p[5]) > 2 ):
@@ -638,6 +701,8 @@ def p_difference_action(p):
         if gui:
             mycut.Base.ViewObject.hide()
             mycut.Tool.ViewObject.hide()
+        if is2DObjs([mycut.Base, mycut.Tool]):
+            mycut = unifyFaces(mycut)
         if printverbose: print("Push Resulting Cut")
         p[0] = [mycut]
     if printverbose: print("End Cut")
@@ -649,26 +714,33 @@ def p_intersection_action(p):
     # Is this Multi Common
     if (len(p[5]) > 2):
         if printverbose: print("Multi Common")
-        mycommon = doc.addObject('Part::MultiCommon',p[1])
+        mycommon = addBoolean('Part::MultiCommon',p[1])
         mycommon.Shapes = p[5]
+        # .Shape stays lazy here (like Part::MultiFuse); enclosing actions
+        # that read it recompute first or guard inputs via checkObjShape.
         if gui:
             for subobj in mycommon.Shapes:
                 subobj.ViewObject.hide()
     elif (len(p[5]) == 2):
         if printverbose: print("Single Common")
-        mycommon = doc.addObject('Part::Common',p[1])
+        mycommon = addBoolean('Part::Common',p[1])
         mycommon.Base = p[5][0]
         mycommon.Tool = p[5][1]
         checkObjShape(mycommon.Base)
         checkObjShape(mycommon.Tool)
+        # Eager compute belongs in this branch only: .Base/.Tool exist solely
+        # here. Mirrors fuse(); the unconditional version crashed on the
+        # MultiCommon / 1-child / 0-child cases (no .Base/.Tool).
+        mycommon.Shape = mycommon.Base.Shape.common(mycommon.Tool.Shape)
         if gui:
             mycommon.Base.ViewObject.hide()
             mycommon.Tool.ViewObject.hide()
     elif (len(p[5]) == 1):
         mycommon = p[5][0]
-    else : # 1 child
+    else : # no child
         mycommon = placeholder('group',[],'{}')
-    mycommon.Shape = mycommon.Base.Shape.common(mycommon.Tool.Shape)
+    if len(p[5]) > 1 and is2DObjs(p[5]):
+        mycommon = unifyFaces(mycommon)
     p[0] = [mycommon]
     if printverbose: print("End Intersection")
 
@@ -1210,7 +1282,8 @@ def p_circle_action(p) :
         Draft._Circle(mycircle)
         mycircle.Radius = r
         mycircle.MakeFace = True
-        mycircle = Draft.makeCircle(r,face=True) # would call doc.recompute
+        # do NOT also Draft.makeCircle(): a second object would shadow this
+        # one and leak it as an orphan document root
         FreeCAD.ActiveDocument.recompute()
     else :
         mycircle = FreeCAD.ActiveDocument.addObject("Part::Part2DObjectPython",'polygon')
@@ -1374,7 +1447,7 @@ def p_projection_action(p) :
         plane.ViewObject.hide()
 
     if p[3]['cut'] == 'true' :
-        obj = doc.addObject('Part::MultiCommon','projection_cut')
+        obj = addBoolean('Part::MultiCommon','projection_cut')
         if (len(p[6]) > 1):
             subobj = [fuse(p[6],"projection_cut_implicit_group")]
         else:

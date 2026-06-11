@@ -273,6 +273,58 @@ class RefineShape:
             sh = fp.Base.Shape.removeSplitter()
             fp.Shape = OpenSCADUtils.applyPlacement(sh)
 
+class UnifyFaces:
+    '''merge the coplanar face fragments that OCC booleans leave behind on
+    2D shapes back into whole faces: OpenSCAD boolean semantics operate on
+    regions, while an OCC general fuse tiles overlapping coplanar faces
+    (and a downstream offset() would then offset every tile separately)'''
+    def __init__(self, obj, child=None):
+        obj.addProperty("App::PropertyLink", "Base", "Base",
+                        "The base object whose faces are unified", locked=True)
+        obj.Proxy = self
+        obj.Base = child
+
+    def onChanged(self, fp, prop):
+        "Do something when a property has changed"
+        pass
+
+    @staticmethod
+    def splitFullCircles(face):
+        '''rebuild a face so that no wire is a single closed circle edge:
+        BRepOffsetAPI_MakeOffset (Part::Offset2D) crashes on such wires'''
+        import Part
+        wires = []
+        changed = False
+        for w in face.Wires:
+            e = w.Edges
+            if len(e) == 1 and w.isClosed() and isinstance(e[0].Curve, Part.Circle):
+                c = e[0].Curve
+                a1 = Part.makeCircle(c.Radius, c.Center, c.Axis, 0, 180)
+                a2 = Part.makeCircle(c.Radius, c.Center, c.Axis, 180, 360)
+                wires.append(Part.Wire([a1, a2]))
+                changed = True
+            else:
+                wires.append(w)
+        if not changed:
+            return face
+        return Part.makeFace(wires, "Part::FaceMakerBullseye")
+
+    def execute(self, fp):
+        if fp.Base and fp.Base.Shape.isValid():
+            import Part
+            import OpenSCADUtils
+            sh = fp.Base.Shape
+            faces = sh.Faces
+            if len(faces) > 1:
+                fused = faces[0].fuse(faces[1:]).removeSplitter()
+                faces = fused.Faces
+            faces = [self.splitFullCircles(f) for f in faces]
+            if len(faces) == 1:
+                sh = faces[0]
+            elif faces:
+                sh = Part.makeCompound(faces)
+            fp.Shape = OpenSCADUtils.applyPlacement(sh)
+
 class IncreaseTolerance:
     '''increase the tolerance of every vertex
     in the current implementation its' placement is linked'''

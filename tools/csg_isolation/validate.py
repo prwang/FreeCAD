@@ -79,6 +79,19 @@ def _read_stl_ascii(f):
     return abs(acc[0]), (acc[1], acc[2])
 
 
+def wrap_2d(csg, out, name):
+    """2D models cannot be STL-rendered by openscad; both sides compare 1mm
+    extrusions instead (csg2step extrudes the FreeCAD result the same way)."""
+    with open(csg) as f:
+        content = f.read()
+    wrapped = "linear_extrude(height = 1) {\n" + content + "\n}\n"
+    path = os.path.join(out, name + ".2dref.csg")
+    if not (os.path.isfile(path) and open(path).read() == wrapped):
+        with open(path, "w") as f:
+            f.write(wrapped)
+    return path
+
+
 def render_reference(csg, ref_stl, timeout):
     if os.path.isfile(ref_stl) and os.path.getmtime(ref_stl) > os.path.getmtime(csg):
         return None  # cached
@@ -105,9 +118,21 @@ def main():
         os.path.splitext(f)[0] for f in os.listdir(args.tests)
         if f.endswith(".csg"))
 
+    summary = {}
+    spath = os.path.join(args.out, "summary.json")
+    if os.path.isfile(spath):
+        try:
+            with open(spath) as f:
+                summary = {r["name"]: (r.get("result") or {})
+                           for r in json.load(f)}
+        except Exception:
+            pass
+
     records = []
     for i, name in enumerate(names, 1):
         csg = os.path.join(args.tests, name + ".csg")
+        if summary.get(name, {}).get("twoD"):
+            csg = wrap_2d(csg, args.out, name)
         ref = os.path.join(args.out, name + ".ref.stl")
         fc = os.path.join(args.out, name + ".stl")
         rec = {"name": name}

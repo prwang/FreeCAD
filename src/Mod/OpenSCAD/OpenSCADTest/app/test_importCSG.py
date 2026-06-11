@@ -83,6 +83,260 @@ class TestImportCSG(unittest.TestCase):
         f.close()
         return importCSG.open(filename)
 
+    def utility_create_csg(self, csgCode, name):
+        # Unlike .scad, .csg files are parsed by importCSG directly and need
+        # no OpenSCAD executable
+        filename = self.temp_dir.name + os.path.sep + name + ".csg"
+        print (f"Creating {filename}")
+        f = open(filename,"w+")
+        f.write(csgCode)
+        f.close()
+        return importCSG.open(filename)
+
+    def utility_translate_x_csg(self, dx, body):
+        return (f"multmatrix([[1, 0, 0, {dx}], [0, 1, 0, 0], "
+                f"[0, 0, 1, 0], [0, 0, 0, 1]]) {{ {body} }}")
+
+    def utility_intersection_of_cubes_csg(self, offsets):
+        children = "\n".join(
+            self.utility_translate_x_csg(dx, "cube(size = [10, 10, 10], center = false);")
+            for dx in offsets)
+        return "intersection() {\n" + children + "\n}\n"
+
+    def utility_solid_roots(self, doc):
+        return [o for o in doc.RootObjects
+                if hasattr(o, "Shape") and not o.Shape.isNull() and o.Shape.Solids]
+
+    # Regression tests: p_intersection_action used to run the eager
+    # mycommon.Shape = mycommon.Base.Shape.common(...) unconditionally, but
+    # .Base/.Tool only exist when the intersection has exactly two children.
+    # Any other child count raised AttributeError during parse.
+    def test_import_intersection_three_children(self):
+        doc = self.utility_create_csg(
+            self.utility_intersection_of_cubes_csg([0, 2, 4]),
+            "intersection_three_children")
+        obj = doc.getObject("intersection")
+        self.assertIsNotNone(obj)
+        self.assertFalse(obj.Shape.isNull())
+        self.assertTrue(obj.Shape.isValid())
+        self.assertEqual(len(obj.Shape.Solids), 1)
+        # 10x10x10 cubes at x = 0, 2, 4 overlap in x = [4, 10]
+        self.assertAlmostEqual(obj.Shape.Volume, 600.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_intersection_four_children(self):
+        doc = self.utility_create_csg(
+            self.utility_intersection_of_cubes_csg([0, 2, 4, 6]),
+            "intersection_four_children")
+        obj = doc.getObject("intersection")
+        self.assertIsNotNone(obj)
+        self.assertAlmostEqual(obj.Shape.Volume, 400.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_intersection_two_children(self):
+        # guard: the (previously only working) eager 2-child branch
+        doc = self.utility_create_csg(
+            self.utility_intersection_of_cubes_csg([0, 2]),
+            "intersection_two_children")
+        obj = doc.getObject("intersection")
+        self.assertIsNotNone(obj)
+        self.assertAlmostEqual(obj.Shape.Volume, 800.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_intersection_single_child(self):
+        # single child passes through without an intersection feature
+        doc = self.utility_create_csg(
+            self.utility_intersection_of_cubes_csg([0]),
+            "intersection_single_child")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 1000.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
+    # Regression test for the null-shape crash chain (ValueError: Null input
+    # shape in fuse, minimized from a real-world model): linear_extrude over
+    # offset() builds a lazy Part::Offset2D -> extrusion dependency chain,
+    # and checkObjShape's single-level recompute could not resolve it before
+    # the enclosing 2-child group fused the children.
+    def test_import_fuse_of_offset_extrusions(self):
+        child = """
+	linear_extrude(height = 2, center = true, convexity = 1, scale = [1, 1], $fn = 16, $fa = 12, $fs = 2) {
+		offset(r = 5, $fn = 16, $fa = 12, $fs = 2) {
+			square(size = [10, 30], center = true);
+		}
+	}
+"""
+        doc = self.utility_create_csg("group() {" + child + child + "}",
+                                      "fuse_of_offset_extrusions")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertTrue(roots[0].Shape.isValid())
+        # both children coincide: (10*30 + perimeter*5 + pi*5^2) * height
+        self.assertAlmostEqual(roots[0].Shape.Volume,
+                               (300 + 400 + 25 * math.pi) * 2, delta=0.5)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_background_modifier(self):
+        # '%' subtrees are preview-only in OpenSCAD and must not contribute
+        # geometry to the imported result (nor linger in the document)
+        csg = """
+union() {
+	cube(size = [10, 10, 10], center = false);
+%	multmatrix([[1, 0, 0, 20], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+		cube(size = [5, 5, 5], center = false);
+	}
+}
+"""
+        doc = self.utility_create_csg(csg, "background_modifier")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 1000.0, 6)
+        self.assertAlmostEqual(roots[0].Shape.BoundBox.XMax, 10.0, 6)
+        self.assertEqual(len(doc.RootObjects), 1)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_debug_modifier(self):
+        # '#' only highlights: geometry must still be included
+        csg = """
+union() {
+	cube(size = [10, 10, 10], center = false);
+#	multmatrix([[1, 0, 0, 20], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+		cube(size = [5, 5, 5], center = false);
+	}
+}
+"""
+        doc = self.utility_create_csg(csg, "debug_modifier")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 1125.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_booleans_unrefined(self):
+        # imported booleans must not inherit Mod/Part RefineModel=true:
+        # refine (removeSplitter) can corrupt the tangent/near-coincident
+        # faces typical of OpenSCAD geometry into self-intersecting shells
+        csg = """
+difference() {
+	union() {
+		cube(size = [10, 10, 10], center = true);
+		cube(size = [8, 8, 12], center = true);
+	}
+	cube(size = [2, 2, 30], center = true);
+}
+"""
+        doc = self.utility_create_csg(csg, "booleans_unrefined")
+        booleans = [o for o in doc.Objects
+                    if o.TypeId in ("Part::Fuse", "Part::MultiFuse", "Part::Cut",
+                                    "Part::Common", "Part::MultiCommon")]
+        self.assertTrue(booleans)
+        for o in booleans:
+            self.assertFalse(o.Refine, f"{o.Name} should be unrefined")
+        FreeCAD.closeDocument(doc.Name)
+
+    def utility_2d_roots(self, doc):
+        return [o for o in doc.RootObjects
+                if hasattr(o, "Shape") and not o.Shape.isNull() and o.Shape.Faces]
+
+    # Regression tests for 2D region semantics: OCC booleans tile overlapping
+    # coplanar faces into fragments; OpenSCAD booleans operate on regions.
+    # Without unification a downstream offset() offsets every fragment
+    # separately (fillets silently lost) or BRepOffsetAPI_MakeOffset
+    # segfaults outright.
+    def test_import_union_2d_unified(self):
+        csg = """
+union() {
+	square(size = [20, 4], center = true);
+	square(size = [4, 20], center = true);
+}
+"""
+        doc = self.utility_create_csg(csg, "union_2d_unified")
+        roots = self.utility_2d_roots(doc)
+        self.assertEqual(len(roots), 1)
+        # one whole face, not a tiling of boolean fragments
+        self.assertEqual(len(roots[0].Shape.Faces), 1)
+        self.assertAlmostEqual(roots[0].Shape.Area, 144.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_offset_fillet_closing(self):
+        # offset(-r) offset(+r) of a 2D union = fillet the concave corners;
+        # the cross has 4 of them, each adds r^2*(1 - pi/4)
+        csg = """
+offset(r = -1.5, $fn = 32, $fa = 12, $fs = 2) {
+	offset(r = 1.5, $fn = 32, $fa = 12, $fs = 2) {
+		union() {
+			square(size = [20, 4], center = true);
+			square(size = [4, 20], center = true);
+		}
+	}
+}
+"""
+        doc = self.utility_create_csg(csg, "offset_fillet_closing")
+        roots = self.utility_2d_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertEqual(len(roots[0].Shape.Faces), 1)
+        expected = 144.0 + 4 * 1.5**2 * (1 - math.pi / 4)
+        self.assertAlmostEqual(roots[0].Shape.Area, expected, 4)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_offset_chain_circle_hole(self):
+        # offset-of-offset over a face with a circular hole: the first
+        # offset's result carries the hole as a single closed circle edge,
+        # which used to SIGSEGV BRepOffsetAPI_MakeOffset in the second
+        csg = """
+offset(r = -1, $fn = 64, $fa = 12, $fs = 2) {
+	offset(r = 1, $fn = 64, $fa = 12, $fs = 2) {
+		difference() {
+			square(size = [20, 20], center = true);
+			circle($fn = 64, $fa = 12, $fs = 2, r = 5);
+		}
+	}
+}
+"""
+        doc = self.utility_create_csg(csg, "offset_chain_circle_hole")
+        roots = self.utility_2d_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertEqual(len(roots[0].Shape.Faces), 1)
+        # closing leaves the plain square with its r=5 hole unchanged
+        self.assertAlmostEqual(roots[0].Shape.Area, 400 - 25 * math.pi, 4)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_circle_not_leaked(self):
+        # p_circle_action used to create the 'circle' object and then shadow
+        # it with a second Draft.makeCircle object, orphaning the first as an
+        # extra document root that polluted exports
+        csg = """
+linear_extrude(height = 2, center = false, convexity = 1, scale = [1, 1], $fn = 96, $fa = 12, $fs = 2) {
+	difference() {
+		square(size = [20, 20], center = true);
+		circle($fn = 96, $fa = 12, $fs = 2, r = 5);
+	}
+}
+"""
+        doc = self.utility_create_csg(csg, "circle_not_leaked")
+        self.assertEqual(len(doc.RootObjects), 1,
+                         [o.Name for o in doc.RootObjects])
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        # $fn=96 >= useMaxFN -> true circle: (400 - 25*pi) * 2
+        self.assertAlmostEqual(roots[0].Shape.Volume,
+                               (400 - 25 * math.pi) * 2, 4)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_intersection_multi_in_linear_extrude(self):
+        # shape of the real-world failure: a >2-child 2D intersection whose
+        # result is consumed by linear_extrude before any document recompute
+        squares = "\n".join(
+            self.utility_translate_x_csg(dx, "square(size = [10, 10], center = false);")
+            for dx in [0, 2, 4])
+        csg = ("linear_extrude(height = 2, center = false, convexity = 1, scale = [1, 1]) {\n"
+               "intersection() {\n" + squares + "\n}\n}\n")
+        doc = self.utility_create_csg(csg, "intersection_multi_extrude")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        # 6 x 10 overlap extruded to height 2
+        self.assertAlmostEqual(roots[0].Shape.Volume, 120.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_sphere(self):
         doc = self.utility_create_scad("sphere(10.0);","sphere")
         sphere = doc.getObject("sphere")
