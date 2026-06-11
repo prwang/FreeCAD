@@ -47,6 +47,10 @@ tests for importer bugs found by the offline conversion harness
   `test_import_offset_chain_circle_hole` — 2D booleans are unified into
   region faces (OpenSCAD semantics) so `offset()` closing generates fillets
   correctly and offset-of-offset chains do not crash OCC.
+* `test_import_offset_childless` / `test_import_offset_background_only_child` /
+  `test_import_offset_3d_child_ignored` — `offset()` edge cases that render
+  empty in OpenSCAD (childless form, all-children-dropped, 2D-only
+  operation over a 3D child) import as empty instead of crashing.
 
 When fixing an importer bug, add the regression here and red/green-verify
 it: stash the fix, confirm the test fails, restore, confirm green (the

@@ -424,12 +424,22 @@ def CGALFeatureObj(name, children,arguments=[]):
             myobj.ViewObject.Proxy = 0
     return myobj
 
+def p_offset_empty_action(p):
+    'offset_action : offset LPAREN keywordargument_list RPAREN SEMICOL'
+    # childless offset (OpenSCAD compiles both `offset(r=1);` and
+    # `offset(r=1) {}` to this form): renders empty in OpenSCAD
+    if printverbose: print("Empty offset -> empty result")
+    p[0] = []
+
 def p_offset_action(p):
     'offset_action : offset LPAREN keywordargument_list RPAREN OBRACE block_list EBRACE'
-    subobj = None
     if len(p[6]) == 0:
-        newobj = placeholder('group',[],'{}')
-    elif (len(p[6]) == 1 ): #single object
+        # all children were dropped (e.g. '%' background subtrees):
+        # OpenSCAD renders this empty
+        if printverbose: print("offset with no children -> empty result")
+        p[0] = []
+        return
+    if (len(p[6]) == 1 ): #single object
         subobj = p[6][0]
     else:
         subobj = fuse(p[6],"Offset Union")
@@ -453,8 +463,13 @@ def p_offset_action(p):
         else:
             newobj.Join = 2
     else:
-        newobj = doc.addObject("Part::Offset",'offset')
-        newobj.Shape = subobj[0].Shape.makeOffset(offset)
+        # offset() is a 2D operation: match OpenSCAD, which warns and
+        # ignores 3D children and renders the node empty
+        FreeCAD.Console.PrintWarning(
+            "offset(): ignoring 3D child object for 2D operation\n")
+        removesubtree([subobj])
+        p[0] = []
+        return
     newobj.Document.recompute()
     if gui:
         subobj.ViewObject.hide()

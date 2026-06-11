@@ -300,6 +300,53 @@ offset(r = -1, $fn = 64, $fa = 12, $fs = 2) {
         self.assertAlmostEqual(roots[0].Shape.Area, 400 - 25 * math.pi, 4)
         FreeCAD.closeDocument(doc.Name)
 
+    # Edge cases of offset(): OpenSCAD renders all of these EMPTY, the
+    # importer used to crash (None deref / subobj[0] on a feature) or rely
+    # on yacc error recovery for the childless semicolon form.
+    def test_import_offset_childless(self):
+        # `offset(r=1);` / `offset(r=1) {}` both compile to this csg form
+        csg = """
+offset(r = 1, $fn = 0, $fa = 12, $fs = 2);
+cube(size = [5, 5, 5], center = false);
+"""
+        doc = self.utility_create_csg(csg, "offset_childless")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 125.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_offset_background_only_child(self):
+        # the '%' subtree is dropped, leaving the offset without children
+        csg = """
+offset(r = 1, $fn = 0, $fa = 12, $fs = 2) {
+%	square(size = [5, 5], center = false);
+}
+cube(size = [5, 5, 5], center = false);
+"""
+        doc = self.utility_create_csg(csg, "offset_background_only")
+        self.assertEqual(len(doc.RootObjects), 1)
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 125.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_offset_3d_child_ignored(self):
+        # offset() is 2D-only: OpenSCAD warns 'Ignoring 3D child object for
+        # 2D operation' and renders empty; the child must not leak either
+        csg = """
+offset(r = 1, $fn = 0, $fa = 12, $fs = 2) {
+	cube(size = [5, 5, 5], center = false);
+}
+cube(size = [2, 2, 2], center = false);
+"""
+        doc = self.utility_create_csg(csg, "offset_3d_child")
+        self.assertEqual(len(doc.RootObjects), 1,
+                         [o.Name for o in doc.RootObjects])
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 8.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_circle_not_leaked(self):
         # p_circle_action used to create the 'circle' object and then shadow
         # it with a second Draft.makeCircle object, orphaning the first as an

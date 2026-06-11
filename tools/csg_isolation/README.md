@@ -167,12 +167,24 @@ test in `OpenSCADTest/app/test_importCSG.py`.
    circular hole produces, so offset-of-offset chains died). Workaround in
    `UnifyFaces.splitFullCircles`: such wires are rebuilt as two arcs via
    `FaceMakerBullseye`.
+8. **`offset()` edge cases** (all render EMPTY in OpenSCAD, all crashed or
+   relied on parser error recovery in the importer):
+   * childless `offset(r=1);` — what OpenSCAD emits for both `offset(r=1);`
+     and `offset(r=1) {}` — had no grammar rule (silent parse error);
+     explicit empty rule added;
+   * an offset whose children were all dropped (e.g. a single `%`
+     background child) dereferenced a `None` source; now yields empty;
+   * a 3D child hit the half-written `subobj[0].Shape.makeOffset` branch
+     (`TypeError`); `offset()` is 2D-only in OpenSCAD ("Ignoring 3D child
+     object for 2D operation"), so the importer now warns, removes the
+     consumed child subtree, and yields empty. (FreeCAD's `makeOffset`
+     *could* round a solid's edges, but that would diverge from OpenSCAD
+     ground truth — 3D rounding is `minkowski()` territory.)
 
-Known, deliberately untouched: the 3D branch of `p_offset_action` indexes
-`subobj[0]` (latent bug, no corpus coverage — needs a 3D `offset()` case
-first); empty `offset() {}` dereferences a `None` source (pre-existing);
-GUI-mode behavior of `%`-removal and `UnifyFaces` tree display has only been
-exercised headless.
+Known, deliberately untouched: GUI-mode behavior of `%`-removal and
+`UnifyFaces` tree display has only been exercised headless; the
+hull()/minkowski() external-openscad path is configured but has no corpus
+coverage.
 
 ## Status
 
