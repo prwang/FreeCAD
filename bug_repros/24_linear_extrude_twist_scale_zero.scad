@@ -14,7 +14,7 @@
 //   regardless of the twist angle, keeping the no-twist one-zero (line) branch
 //   and leaving the twist+line case on its working MakePipeShell path. A point
 //   apex lies ON the twist axis, so the twist leaves it invariant: the solid is
-//   exactly the straight pyramid. Commit <pending>.
+//   exactly the straight pyramid. Commit 8e36697899.
 // EXPECTED (OpenSCAD): twist preserves cross-sectional area, so the volume equals
 //   the no-twist value. A 2x2 base extruded h=3 tapering to a point (scale=[0,0])
 //   is a pyramid of base*h/3 = 4*3/3 = 4 (OpenSCAD's 20-slice render is 4.087, a
