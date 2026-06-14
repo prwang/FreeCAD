@@ -664,6 +664,18 @@ def fuse(lst,name):
     global doc
     if printverbose: print("Fuse")
     if printverbose: print(lst)
+    # A u 0 = A: drop empty/null operands up front so a degenerate child (e.g.
+    # square([0,0]), or a linear_extrude that came out empty) cannot null the
+    # whole union. Resolve lazy shapes first so the test is accurate. Both the
+    # eager single Part::Fuse (Shape.fuse() raises "Null input shape") and the
+    # lazy Part::MultiFuse (recomputes to a null shape) need this.
+    checkObjShape(lst)
+    keep = [o for o in lst
+            if not (hasattr(o, 'Shape') and o.Shape.isNull())]
+    for o in lst:  # the dropped empties are consumed here; don't leak as roots
+        if o not in keep:
+            doc.removeObject(o.Name)
+    lst = keep
     if len(lst) == 0:
         myfuse = placeholder('group',[],'{}')
     elif len(lst) == 1:
@@ -681,15 +693,6 @@ def fuse(lst,name):
         myfuse = addBoolean('Part::Fuse',name)
         myfuse.Base = lst[0]
         myfuse.Tool = lst[1]
-        checkObjShape(myfuse.Base)
-        checkObjShape(myfuse.Tool)
-        # A u 0 = A: fuse() raises "Null input shape" on a null operand, so an
-        # empty/degenerate child (e.g. square([0,0])) would crash the union.
-        # Drop the empty operand and pass the other through.
-        if myfuse.Base.Shape.isNull() or myfuse.Tool.Shape.isNull():
-            keep = myfuse.Tool if myfuse.Base.Shape.isNull() else myfuse.Base
-            doc.removeObject(myfuse.Name)
-            return keep
         myfuse.Shape = myfuse.Base.Shape.fuse(myfuse.Tool.Shape)
         if gui:
             myfuse.Base.ViewObject.hide()
@@ -937,6 +940,15 @@ def p_linear_extrude_with_transform(p):
     else :
         obj = p[6][0]
     checkObjShape(obj)
+    if obj.Shape.isNull():
+        # extruding an empty 2D region (e.g. a degenerate square([0,0])) is
+        # empty in OpenSCAD; otherwise the null profile yields a null extrusion
+        # that then nulls every union/group it flows into. Consume the empty
+        # profile so it does not linger as a stray null document root.
+        if printverbose: print("Linear extrude of empty -> empty result")
+        doc.removeObject(obj.Name)
+        p[0] = []
+        return
     if t != 0.0 or s[0] != 1.0 or s[1] != 1.0:
         newobj = process_linear_extrude_with_transform(obj,h,t,s)
     else:

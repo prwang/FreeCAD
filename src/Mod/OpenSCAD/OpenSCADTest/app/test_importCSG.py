@@ -422,6 +422,36 @@ union() {
         self.assertAlmostEqual(roots[0].Shape.Area, 6.0, delta=1e-6)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_union_drops_empty_operand(self):
+        # Priority A (routing_tiles): a degenerate square([0,0]) is a null
+        # operand (square fix); linear_extrude of it is empty, and that empty
+        # must NOT null the enclosing union. Both linear_extrude and the
+        # >2-child Part::MultiFuse now drop empty operands (A u 0 = A) and
+        # consume them (no stray null roots) instead of propagating null. The
+        # three real cubes (disjoint, x = 0/20/40) survive: volume 3000.
+        csg = """
+union() {
+	cube(size = [10, 10, 10], center = false);
+	multmatrix([[1, 0, 0, 20], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+		cube(size = [10, 10, 10], center = false);
+	}
+	multmatrix([[1, 0, 0, 40], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+		cube(size = [10, 10, 10], center = false);
+	}
+	linear_extrude(height = 2, center = false, convexity = 1, scale = [1, 1]) {
+		square(size = [0, 0], center = false);
+	}
+}
+"""
+        doc = self.utility_create_csg(csg, "union_drops_empty")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 3000.0, 6)
+        nulls = [o for o in doc.RootObjects
+                 if hasattr(o, "Shape") and o.Shape.isNull()]
+        self.assertEqual(nulls, [], [o.Name for o in nulls])
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_intersection_multi_in_linear_extrude(self):
         # shape of the real-world failure: a >2-child 2D intersection whose
         # result is consumed by linear_extrude before any document recompute
