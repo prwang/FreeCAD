@@ -147,6 +147,16 @@ def _read_stl_ascii(f):
 # prepended to the file would NOT override these, so we rewrite them in place.
 FN_RE = re.compile(r"(\$fn\s*=\s*)([0-9.eE+-]+)")
 
+# `slices` is the twist analogue of $fn: a twisted linear_extrude is faceted into
+# `slices` rotated cross-sections, so its volume/bbox carry a discretization
+# error that does NOT vanish at the default slice count and is NOT controlled by
+# $fn. FreeCAD builds the exact smooth (helical) sweep -- the slices->inf limit --
+# so --refine-fn must also raise `slices` for the reference to converge to it
+# (e.g. twist=90 square h=20: openscad 2050/2020/2005/2001 at slices 20/50/200/
+# 1000 -> FreeCAD's exact 2000). Without this, smooth-correct twists read as
+# spurious mismatches.
+SLICES_RE = re.compile(r"(slices\s*=\s*)([0-9]+)")
+
 
 def delta2(n):
     """Area deficit fraction of an inscribed regular n-gon vs its circle:
@@ -210,6 +220,9 @@ def prepare_ref_csg(csg, out, name, twoD, refine_fn):
     tag = ""
     if refine_fn:
         content = FN_RE.sub(lambda m: m.group(1) + str(refine_fn), content)
+        # also refine twist faceting (`slices`) so a twisted extrude's reference
+        # converges to FreeCAD's exact smooth sweep (see SLICES_RE).
+        content = SLICES_RE.sub(lambda m: m.group(1) + str(refine_fn), content)
         tag += ".fn%d" % refine_fn
     if twoD:
         content = "linear_extrude(height = 1) {\n" + content + "\n}\n"
