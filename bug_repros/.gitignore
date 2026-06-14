@@ -1,0 +1,2 @@
+# compiled .csg from `openscad -o out/x.csg x.scad` — regenerable, not tracked
+out/
