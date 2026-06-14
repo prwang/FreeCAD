@@ -9,7 +9,7 @@
 //   factor = float('-5')/old_size = -5 -> Matrix.scale(-5,1,1) -> mirrored cube.
 // FIX: importCSG.py p_resize_action -> replace the `== '0'` guard with a numeric
 //   `float(new_size[r]) <= 0` test, so 0, 0.0 and negatives all leave that axis
-//   unchanged (factor 1.0). Commit <pending>.
+//   unchanged (factor 1.0). Commit 561edf6ebe.
 // EXPECTED (OpenSCAD): a newsize <= 0 means "do not resize this axis" -- it is
 //   NOT a mirror. resize([-5,0,0]) cube([1,1,1]) renders as the original unit
 //   cube, volume 1 (verified by openscad STL render = 1.0).
