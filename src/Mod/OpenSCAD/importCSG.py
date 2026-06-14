@@ -522,12 +522,16 @@ def p_resize_action(p):
         if new_size[r] == '0':
             new_size[r] = str(old_size[r])
 
-    # Calculate a transform matrix from the current bounding box to the new one:
+    # Calculate a transform matrix from the current bounding box to the new one.
+    # An axis with zero extent (e.g. the Z axis of a 2D shape) cannot be scaled
+    # to a finite size -- there is nothing to stretch -- so OpenSCAD leaves it
+    # unchanged. Guard the division: factor 1.0 when old_size[r] == 0, which
+    # also avoids the ZeroDivisionError that aborted the whole import.
     transform_matrix = FreeCAD.Matrix()
 
-    scale = FreeCAD.Vector(float(new_size[0])/old_size[0],
-                           float(new_size[1])/old_size[1],
-                           float(new_size[2])/old_size[2])
+    factors = [1.0 if old_size[r] == 0 else float(new_size[r]) / old_size[r]
+               for r in range(0, 3)]
+    scale = FreeCAD.Vector(*factors)
 
     transform_matrix.scale(scale)
 

@@ -652,6 +652,22 @@ resize(newsize = [0,0,10], auto = [0,0,0]) {
         self.assertAlmostEqual (object.Shape.BoundBox.ZLength, 10.0, 1)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_resize_zero_extent_axis(self):
+        # Priority A: resize() of a shape with a zero-extent axis. A 2D square
+        # has ZLength == 0, so the old transform divided new_size[z]/0 ->
+        # ZeroDivisionError, aborting the import. OpenSCAD leaves a zero-extent
+        # axis unscaled; here the square just stretches 10x10 -> 15x15 in XY.
+        csg = """
+resize(newsize = [15, 15, 0], auto = [0, 0, 0], convexity = 0) {
+	square(size = [10, 10], center = false);
+}
+"""
+        doc = self.utility_create_csg(csg, "resize_zero_extent_axis")
+        obj = doc.ActiveObject
+        self.assertIsNotNone(obj)
+        self.assertAlmostEqual(obj.Shape.Area, 225.0, delta=0.01)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_surface(self):
         preferences = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/OpenSCAD")
         transfer_mechanism = preferences.GetInt('transfermechanism',0)
