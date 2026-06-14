@@ -1,70 +1,63 @@
-# CURRENT_BUG — A4: resize() leaks the un-resized source as an orphan root
+# CURRENT_BUG — A5: linear_extrude twist + zero-scale-component → null shape
 
 ## Observation
-- **Symptom:** `resize(){ ... }` imports as TWO document roots: the correct
-  baked `Matrix Deformation` solid AND the original un-resized child solid.
-  The summed-STL validation double-counts; when the source has a huge extent the
-  leak dominates.
-- **File/repro:** `/tmp/resize_min.csg`:
-  `resize(newsize=[0,0,0.5]){ cube([6,6,1e10]); }` → 2 roots: `Matrix_Deformation`
-  (6×6×0.5, vol = 18.0, valid) + leaked `cube` (vol = 3.6e11).
-- **Corpus impact:** `t3d__resize-tests` vol_err = 4.06e9 %,
-  `t2d__resize-2d-tests` = 40650 %.
-- **Stage:** import succeeds (no crash); geometry/root-count wrong.
+- **Symptom:** `linear_extrude(twist≠0, scale=[0,*])` (a zero scale component)
+  imports as a NULL shape → `stage=invalid-shape` / "all root shapes are null".
+- **Repro:** `/tmp/tw/point.csg` (`twist=180, scale=[0,0] square([2,2]) h=3`) and
+  `/tmp/tw/line.csg` (`twist=90, scale=[0,1]`).
+- **Corpus impact:** `t3d__linear_extrude-scale-zero-tests` (44.8 %),
+  `linear_extrude_invisible-tests` (34.7 %), `ex__linear_extrude` (24 %).
+- **OpenSCAD reference render:** point = 4.087, line = 6.048 (the discretized
+  20-slice overshoot above the smooth limits base·h/3 = 4 and base·h/2 = 6;
+  twist preserves cross-sectional area so the volume is scale-driven only).
 
 ## Hypotheses
-- **H1 — orphan-source leak in `p_resize_action`.** The rule builds
-  `new_part = doc.addObject("Part::FeaturePython",'Matrix Deformation')` with
-  `transformGeometry(scale)` but never consumes the source `p[6][0]`; it only
-  `p[6][0].ViewObject.hide()`s it, and only under `gui`. Headless leaves the
-  source as a live root. Independently testable: count roots after a resize
-  import headlessly.
-- **H2 — `transformGeometry` produces a wrong/extra shape at extreme scale.**
-  The 5e-11 Z scale could be miscomputed → spurious second solid. Testable: check
-  the `Matrix Deformation` volume in isolation against the analytic 18.0.
-- **H3 — comparator/harness double-counts a single correct root.** Testable: list
-  the actual document objects, not just the summed volume.
+- **H1 — the A2#6 degenerate-taper branch is gated on `Angle==0`.**
+  `OpenSCADFeatures.Twist.execute` L459: `if fp.Angle.Value == 0.0 and (abs(sx) <
+  1e-9 or abs(sy) < 1e-9) ...`. With twist≠0 the code skips `_taper_solid` and
+  falls through to `MakePipeShell` between the base wire and the zero-area scaled
+  top wire → `gp_Dir() zero norm` → null. Testable: import the repro and confirm
+  the root shape is null on twist≠0 but valid on the same case with twist=0.
+- **H2 — the profile/scale parse is wrong** (e.g. scale not reaching Twist).
+  Testable: print fp.Scale / fp.Angle inside execute.
 
 ## Evidence log
-- Probe `/tmp/resize_test.csg` (`resize([4,0,0]) cube([2,2,2])`, openscad-generated)
-  headless, list ALL document objects + InList:
-  - `OBJ cube type=Part::Box vol=8.0 null=False InList=[]`
-  - `OBJ Matrix_Deformation type=Part::FeaturePython vol=16.0 null=False InList=[]`
-  → **2 objects, both roots** (InList empty). Matrix_Deformation = 4×2×2 = 16 exactly.
-- (note) A hand-written `auto=[false,false,false]` csg silently no-ops the resize
-  (the rule's `auto[r]=='1'`/`new_size[r]=='0'` string compares expect openscad's
-  numeric formatting). Always generate the repro via `openscad -o`.
+- Import probe on COMMITTED OpenSCADFeatures (build tree):
+  - `point` twist=180 scale=[0,0]  → `transform_extrude null=True`  ← NULL bug
+  - `line`  twist=90  scale=[0,1]  → `transform_extrude null=False vol=6.0`  (works!)
+  - `point_notwist` twist=0 scale=[0,0] → `null=False vol=4.0`  (A2#6 path)
+- So the null is NARROWER than assumed: only the **both-components-zero** (top
+  collapses to a POINT) case under twist≠0. The one-zero (line) case already
+  builds via MakePipeShell — its top wire is a degenerate-but-nonzero segment, so
+  no zero-norm — and gives exactly 6.0 (= base·h/2, even cleaner than OpenSCAD's
+  20-slice 6.048).
 
 ## Verdict
-- **H1 ACCEPTED.** Exactly two roots; the source `cube` (Part::Box, vol 8) is a
-  real live document object with no consumer — the orphan leak.
-- **H2 REJECTED.** `Matrix_Deformation` is analytically exact (vol 16 = 4×2×2);
-  `transformGeometry` is correct.
-- **H3 REJECTED.** The leaked root is a genuine `Part::Box` document object, not a
-  harness artifact.
-- Fix: after baking `new_part.Shape`, remove `p[6][0]` + its `OutListRecursive`
-  subtree, mirroring A3#8 (`ac08e5e2c5`). **APPLIED + GREEN** (unit 55/55; repro
-  `resize([4,0,0]) cube([2,2,2])` → 1 root vol 16).
+- **H1 ACCEPTED, refined.** The `Angle==0` gate skips `_taper_solid` for the
+  point-collapse-with-twist case, dropping it to MakePipeShell where the
+  zero-area point top → `gp_Dir` zero norm → null. Confirmed: same scale builds
+  fine at twist=0; the line variant is unaffected (MakePipeShell handles it).
+- **H2 REJECTED.** fp.Scale/fp.Angle reach execute correctly (line builds vol 6;
+  no-twist point builds vol 4).
+- **Key geometry fact:** a point apex sits ON the twist axis, so twisting leaves
+  it invariant — the correct solid is exactly the straight pyramid (base·h/3 = 4),
+  which `_taper_solid` already produces. Fix: fire `_taper_solid` whenever the top
+  collapses to a point (`abs(sx)<eps and abs(sy)<eps`), regardless of Angle; keep
+  the existing no-twist one-zero (line) branch; leave the twist+line case on its
+  working MakePipeShell path. (Difference vs OpenSCAD's 4.087 is 2.1 % discretized
+  overshoot — faceting-class, absorbed by the validate.py envelope.)
 
-## Post-fix associated-corpus check (separate defects surfaced — NOT this bug)
-Re-converting/validating the resize corpus after the leak fix:
-- `t3d__resize-convexity-tests` → **MATCH** (0.055 %).
-- `t3d__resize-tests` 4.06e9 % → **36.9 %** (leak gone; 63 roots, 0 null, 0 invalid).
-- `t2d__resize-2d-tests` 40650 % → **14.8 %**.
-The blowup (the A4 leak) is eliminated. The residuals are `fc < ref` (missing
-volume — opposite sign to a leak) and survive `--refine-fn 128` (NOT faceting).
-Isolated against OpenSCAD's own render they are **two distinct, pre-existing
-resize defects, separate from the orphan leak**:
-- **A6 (clean, tractable):** negative newsize. `resize([-5,0,0]) cube(1)` →
-  OpenSCAD **1** (axis with newsize ≤ 0 left unchanged) vs FreeCAD **5** (the
-  `new_size[r]=='0'` string-guard misses negatives → factor −5 → mirrored). Clean
-  analytic target → Priority-A follow-up.
-- **UNKNOWN (postpone, implementation-defined):** `auto=true` on an axis that also
-  has an explicit nonzero newsize. `resize([5,0,20],auto=[F,T,T]) cube(9)` →
-  OpenSCAD **2000** (= 5×20×20; the auto y-axis follows z's 20/9 factor, not x's)
-  vs FreeCAD **125** (the rule `if auto[r]: new_size[r]=new_size[0]` clobbers the
-  explicit z=20 with x=5). OpenSCAD's autoscale-factor selection here has no clean
-  analytic target → mark UNKNOWN per CLAUDE.md.
-These do not block A4: the leak (the dominant error component) is fixed and the
-removal dropped nothing (no null/invalid roots). The resize-tests corpus case will
-not fully MATCH until A6 + the auto edge are resolved — tracked separately.
+## Post-fix associated-corpus check (improvement, no regression)
+A/B vs committed (pre-A5) OpenSCADFeatures on the linear_extrude cases:
+- `t3d__linear_extrude-scale-zero-tests`: 44.8 % → **32.4 %** (bbox_d 5.86 → 3.0).
+- `ex__linear_extrude`: SUSPECT 24.2 % → **OK 3.3 %** (cleared the invalid
+  `transform_extrude002`; bbox_d 28.2 → 4.37).
+- `t3d__linear_extrude-tests`: MATCH 0.9 % before and after (unchanged).
+- `t3d__linear_extrude-parameter-tests`: MATCH; `linear_extrude_invisible-tests`
+  unchanged 34.7 % (a variant my branch does not touch).
+The pre-existing SUSPECT (invalid shapes) on scale-zero-tests / linear_extrude-tests
+is present at HEAD before A5 — NOT introduced by this fix (A5 only adds the
+point-collapse branch; it removed an invalid shape, never added one). The residual
+MISMATCH is a separate pre-existing cluster (twist + nonzero-scale shells that the
+MakePipeShell path leaves invalid and falls back to a Compound), tracked separately.
+Unit 56/56; dev corpus 35/35 convert + 35 MATCH.

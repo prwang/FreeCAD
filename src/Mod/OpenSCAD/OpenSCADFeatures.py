@@ -446,18 +446,29 @@ class Twist:
             solids = []
             for lower_face in fp.Base.Shape.Faces:
                 sx, sy = float(fp.Scale[0]), float(fp.Scale[1])
-                # A2#6: a zero scale component collapses the top profile to a
-                # line (one zero) or a point (both zero). MakePipeShell then
-                # has an undefined sweep direction and raises
-                # "gp_Dir() - input vector has zero norm". With no twist and a
-                # single-wire profile, build the tapered solid analytically by
-                # connecting each base perimeter vertex to its scaled top
-                # vertex (the side becomes a triangle where the top collapses,
-                # a quad otherwise). Matches OpenSCAD: scale [0,0] -> base*h/3,
-                # scale [0,k] -> base*h/2. Holed profiles fall through to the
-                # general path below (collapsing-hole solid has no clean target).
-                if fp.Angle.Value == 0.0 and (abs(sx) < 1e-9 or abs(sy) < 1e-9) \
-                        and len(lower_face.Wires) == 1:
+                # A2#6 / A5: a zero scale component collapses the top profile to
+                # a line (one zero) or a point (both zero). MakePipeShell then has
+                # an undefined sweep direction and raises "gp_Dir() - input vector
+                # has zero norm". For a single-wire profile, build the tapered
+                # solid analytically by connecting each base perimeter vertex to
+                # its scaled top vertex (the side is a triangle where the top
+                # collapses to a point, a quad otherwise). Matches OpenSCAD:
+                # scale [0,0] -> base*h/3, scale [0,k] -> base*h/2.
+                #   A2#6 covered no-twist (both the line and point collapse).
+                #   A5: with twist, the line collapse (one zero) still builds on
+                #   the MakePipeShell path below (its degenerate-but-nonzero top
+                #   segment has a defined direction), but the POINT collapse (both
+                #   zero) hits the zero-norm crash -> null. A point apex lies ON
+                #   the twist axis, so the twist leaves it invariant and the
+                #   correct solid is exactly the straight pyramid base*h/3 that
+                #   _taper_solid already produces. So take the analytic path for
+                #   the no-twist one-zero case OR any both-zero (point) case.
+                # Holed profiles fall through to the general path (a collapsing
+                # holed solid has no clean target).
+                both_zero = abs(sx) < 1e-9 and abs(sy) < 1e-9
+                one_zero = abs(sx) < 1e-9 or abs(sy) < 1e-9
+                if len(lower_face.Wires) == 1 and \
+                        (both_zero or (fp.Angle.Value == 0.0 and one_zero)):
                     tapered = self._taper_solid(lower_face, fp.Height.Value, sx, sy)
                     if tapered is not None:
                         solids.append(tapered)

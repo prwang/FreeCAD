@@ -297,6 +297,36 @@ projection(cut = true, convexity = 0) {
                                    msg=name)
             FreeCAD.closeDocument(doc.Name)
 
+    def test_import_linear_extrude_twist_scale_taper(self):
+        # A5: linear_extrude with BOTH a twist and a zero scale component. A2#6
+        # handled the no-twist taper, but its branch was gated on Angle==0, so a
+        # twisted extrude whose top collapses to a POINT (scale [0,0]) fell
+        # through to MakePipeShell, where the zero-area point top gave an
+        # undefined sweep direction ("gp_Dir() zero norm") and the result
+        # imported as a null shape. A point apex lies on the twist axis, so the
+        # twist leaves it invariant: the solid is the straight pyramid base*h/3.
+        # The one-zero (line) collapse already built on the MakePipeShell path
+        # (its degenerate-but-nonzero top segment has a defined direction) and
+        # must stay valid. Twist preserves cross-sectional area, so the volumes
+        # equal the no-twist values: a 2x2 base extruded h=3 gives a pyramid
+        # (twist 180, scale [0,0]) of base*h/3 = 4 and a wedge (twist 90,
+        # scale [0,1]) of base*h/2 = 6.
+        def extrude(twist, scale):
+            return (f"linear_extrude(height = 3, center = false, convexity = 1, "
+                    f"twist = {twist}, slices = 20, scale = {scale}, $fn = 0, "
+                    f"$fa = 12, $fs = 2) {{\n"
+                    f"\tsquare(size = [2, 2], center = false);\n}}\n")
+        for name, twist, scale, expected in [
+                ("twist_taper_point", 180, "[0, 0]", 4.0),
+                ("twist_taper_line", 90, "[0, 1]", 6.0)]:
+            doc = self.utility_create_csg(extrude(twist, scale), name)
+            roots = self.utility_solid_roots(doc)
+            self.assertEqual(len(roots), 1, f"{name}: {[o.Name for o in doc.RootObjects]}")
+            self.assertTrue(roots[0].Shape.isValid(), name)
+            self.assertAlmostEqual(roots[0].Shape.Volume, expected, delta=1e-3,
+                                   msg=name)
+            FreeCAD.closeDocument(doc.Name)
+
     def test_import_background_modifier(self):
         # '%' subtrees are preview-only in OpenSCAD and must not contribute
         # geometry to the imported result (nor linger in the document)
