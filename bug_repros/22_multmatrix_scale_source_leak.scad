@@ -13,7 +13,7 @@
 // FIX: importCSG.py p_multmatrix_action -> after baking the transformed shape,
 //   remove `part` and its subtree (OutListRecursive) from the document; its
 //   geometry is fully copied into new_part and nothing else references it.
-//   Commit <pending>.
+//   Commit ac08e5e2c5.
 // EXPECTED (OpenSCAD): scaling a 10x10x10 cube by 2 in every axis is one solid
 //   of volume 10^3 * 2^3 = 8000 -- exactly ONE document root, no leftover
 //   1000-unit raw cube. (The polyhedron geometry itself was already correct;
