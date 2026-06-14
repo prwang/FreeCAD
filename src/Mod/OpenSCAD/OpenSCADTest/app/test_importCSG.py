@@ -402,6 +402,26 @@ linear_extrude(height = 2, center = false, convexity = 1, scale = [1, 1], $fn = 
         self.assertAlmostEqual(circle.Shape.Area, math.pi * 100.0, delta=0.01)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_square_non_positive_is_empty(self):
+        # Priority A: OpenSCAD renders a square with a non-positive dimension as
+        # empty. The importer built a degenerate Part::Plane (an invalid or
+        # bogus non-empty face -> square-tests read 107 vs the reference 7).
+        # A 2x3 square unioned with a 1x0 (empty) square must yield just the
+        # 2x3 area; the empty operand also exercises the fuse() null guard
+        # (A u 0 = A) rather than crashing on "Null input shape".
+        csg = """
+union() {
+	square(size = [2, 3], center = false);
+	square(size = [1, 0], center = false);
+}
+"""
+        doc = self.utility_create_csg(csg, "square_non_positive")
+        roots = [o for o in doc.RootObjects
+                 if hasattr(o, "Shape") and not o.Shape.isNull()]
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Area, 6.0, delta=1e-6)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_intersection_multi_in_linear_extrude(self):
         # shape of the real-world failure: a >2-child 2D intersection whose
         # result is consumed by linear_extrude before any document recompute

@@ -671,6 +671,13 @@ def fuse(lst,name):
         myfuse.Tool = lst[1]
         checkObjShape(myfuse.Base)
         checkObjShape(myfuse.Tool)
+        # A u 0 = A: fuse() raises "Null input shape" on a null operand, so an
+        # empty/degenerate child (e.g. square([0,0])) would crash the union.
+        # Drop the empty operand and pass the other through.
+        if myfuse.Base.Shape.isNull() or myfuse.Tool.Shape.isNull():
+            keep = myfuse.Tool if myfuse.Base.Shape.isNull() else myfuse.Base
+            doc.removeObject(myfuse.Name)
+            return keep
         myfuse.Shape = myfuse.Base.Shape.fuse(myfuse.Tool.Shape)
         if gui:
             myfuse.Base.ViewObject.hide()
@@ -1344,6 +1351,17 @@ def p_square_action(p) :
     size = p[3]['size']
     x = float(size[0])
     y = float(size[1])
+    if x <= 0 or y <= 0:
+        # OpenSCAD renders a square with a non-positive dimension as empty.
+        # A Part::Plane with Length/Width <= 0 is degenerate (an invalid face
+        # or a bogus non-empty one), so build a null-shaped operand instead.
+        # Keeping it as an operand (rather than dropping it) lets booleans see
+        # "empty" and stay correct -- e.g. intersection with it is empty.
+        if printverbose: print("Non-positive square -> empty")
+        mysquare = doc.addObject('Part::Feature', p[1])
+        mysquare.Shape = Part.Shape()
+        p[0] = [mysquare]
+        return
     mysquare = doc.addObject('Part::Plane',p[1])
     mysquare.Length=x
     mysquare.Width=y
