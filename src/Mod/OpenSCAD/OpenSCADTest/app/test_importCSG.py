@@ -515,6 +515,29 @@ union() {
         self.assertAlmostEqual (wire.Shape.Area, 5000.0)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_polygon_undef_is_empty(self):
+        # Priority A: OpenSCAD emits polygon(points = undef, paths = undef, ...)
+        # for a polygon with no geometry (pervasive in Round-Anything library
+        # code). No grammar rule matched "points = undef", so it raised a
+        # (silently swallowed) syntax error. Recognise it as an empty result
+        # instead; assert that no syntax error fires and the sibling cube still
+        # imports while the empty polygon contributes nothing.
+        calls = []
+        orig_p_error = importCSG.p_error
+        importCSG.p_error = lambda p: calls.append(getattr(p, "value", p))
+        try:
+            doc = self.utility_create_csg(
+                "cube(size = [10, 10, 10], center = false);\n"
+                "polygon(points = undef, paths = undef, convexity = 1);\n",
+                "polygon_undef")
+        finally:
+            importCSG.p_error = orig_p_error
+        self.assertEqual(calls, [], "polygon(points=undef) must not be a syntax error")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 1000.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_polygon_with_hole(self):
         # Priority A: a polygon with an outer path plus hole path(s). The loop
         # built a separate face per path and pushed it from *inside* the loop

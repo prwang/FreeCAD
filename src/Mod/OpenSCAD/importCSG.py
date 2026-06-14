@@ -296,6 +296,7 @@ def p_part(p):
          | text_action
          | polygon_action_nopath
          | polygon_action_plus_path
+         | polygon_action_undef
          | polyhedron_action
          '''
     p[0] = p[1]
@@ -606,8 +607,19 @@ def p_color_action(p):
 
 # Error rule for syntax errors
 def p_error(p):
-    if printverbose: print("Syntax error in input!")
-    if printverbose: print(p)
+    # A syntax error used to be swallowed silently, so an unrecognised
+    # construct produced a mysteriously empty/partial document with no clue
+    # why. Warn loudly with the offending token and line number, then let the
+    # parser continue (PLY discards the token and resynchronises) so the rest
+    # of the file still imports.
+    if p is None:
+        FreeCAD.Console.PrintError(
+            "OpenSCAD: syntax error at end of input (unexpected EOF)\n")
+        return
+    FreeCAD.Console.PrintError(
+        "OpenSCAD: syntax error near '%s' (token %s) at line %d; "
+        "skipping and continuing\n" % (p.value, p.type, p.lineno))
+    if printverbose: print("Syntax error in input!", p)
 
 def addBoolean(typename, name):
     """Add a Part boolean feature with refine disabled.
@@ -1423,6 +1435,15 @@ def p_polygon_action_nopath(p) :
     if printverbose: print("update object")
     mypolygon.Shape = Part.Face(parts)
     p[0] = [mypolygon]
+
+def p_polygon_action_undef(p) :
+    'polygon_action_undef : polygon LPAREN points EQ undef COMMA paths EQ undef COMMA keywordargument_list RPAREN SEMICOL'
+    # OpenSCAD emits polygon(points = undef, paths = undef, ...) for a polygon
+    # with no geometry (common in library code, e.g. Round-Anything). No rule
+    # matched it, so the syntax error aborted the whole import and the document
+    # came back empty. It has no geometry, so import it as an empty result.
+    if printverbose: print("Polygon undef -> empty")
+    p[0] = []
 
 def p_polygon_action_plus_path(p) :
     'polygon_action_plus_path : polygon LPAREN points EQ OSQUARE points_list_2d ESQUARE COMMA paths EQ OSQUARE path_set ESQUARE COMMA keywordargument_list RPAREN SEMICOL'
