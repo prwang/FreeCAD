@@ -369,6 +369,22 @@ linear_extrude(height = 2, center = false, convexity = 1, scale = [1, 1], $fn = 
                                (400 - 25 * math.pi) * 2, 4)
         FreeCAD.closeDocument(doc.Name)
 
+    # --- Priority A regressions (minimized from the external real-world
+    #     corpus; each pins one OpenSCAD semantic the importer got wrong) ---
+
+    def test_import_circle_fractional_fn(self):
+        # OpenSCAD rounds $fn to an integer fragment count; circle($fn = 0.1)
+        # is legal and renders as a (near-)circle. p_circle_action used to do
+        # int(p[3]['$fn']) -> int('0.1') -> ValueError during parse.
+        doc = self.utility_create_csg(
+            "circle($fn = 0.1, $fa = 12, $fs = 2, r = 10);",
+            "circle_fractional_fn")
+        circle = doc.getObject("circle")
+        self.assertIsNotNone(circle)
+        # round(0.1) == 0 -> n == 0 -> true (smooth) circle of radius 10
+        self.assertAlmostEqual(circle.Shape.Area, math.pi * 100.0, delta=0.01)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_intersection_multi_in_linear_extrude(self):
         # shape of the real-world failure: a >2-child 2D intersection whose
         # result is consumed by linear_extrude before any document recompute

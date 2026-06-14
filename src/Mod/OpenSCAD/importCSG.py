@@ -1285,7 +1285,10 @@ def p_circle_action(p) :
     r = float(p[3]['r'])
     # Avoid zero radius
     if r == 0 : r = 0.00001
-    n = int(p[3]['$fn'])
+    # $fn may be fractional (e.g. circle($fn = 0.1)); OpenSCAD rounds it to an
+    # integer fragment count, so int(p[3]['$fn']) crashes on '0.1'. Mirror
+    # p_cylinder_action, which already rounds.
+    n = int(round(float(p[3]['$fn'])))
     fnmax = FreeCAD.ParamGet(\
         "User parameter:BaseApp/Preferences/Mod/OpenSCAD").\
         GetInt('useMaxFN',16)
