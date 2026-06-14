@@ -193,6 +193,38 @@ intersection() {
                                (300 + 400 + 25 * math.pi) * 2, delta=0.5)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_projection_cut_false_no_plane_leak(self):
+        # A3#9: p_projection_action built the helper "xy_plane_used_for_projection"
+        # Part::Plane unconditionally, but only the cut=true branch consumes it
+        # (into a MultiCommon). On the cut=false path (true projection, an
+        # unsupported placeholder) the plane was never consumed and lingered as
+        # a stray orphan document root -- a 10x10 face that pollutes the result.
+        # The plane is now built inside the cut=true branch only.
+        cut_false = """
+projection(cut = false, convexity = 0) {
+	cube(size = [10, 10, 10], center = true);
+}
+"""
+        doc = self.utility_create_csg(cut_false, "projection_cut_false")
+        leaked = [o for o in doc.Objects
+                  if o.Name.startswith("xy_plane_used_for_projection")]
+        self.assertEqual(leaked, [], "cut=false leaked the projection plane")
+        FreeCAD.closeDocument(doc.Name)
+
+        # cut=true is unaffected: the slice of a centered cube at z=0 is the
+        # 10x10 mid-section, area 100, and the plane stays a consumed child.
+        cut_true = """
+projection(cut = true, convexity = 0) {
+	cube(size = [10, 10, 10], center = true);
+}
+"""
+        doc = self.utility_create_csg(cut_true, "projection_cut_true")
+        roots = doc.RootObjects
+        self.assertEqual(len(roots), 1, [o.Name for o in roots])
+        self.assertFalse(roots[0].Shape.isNull())
+        self.assertAlmostEqual(roots[0].Shape.Area, 100.0, delta=1e-3)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_linear_extrude_scale_taper(self):
         # A2#6: linear_extrude with a zero scale component tapers the top
         # profile to a line (one zero) or a point (both zero). OpenSCADFeatures

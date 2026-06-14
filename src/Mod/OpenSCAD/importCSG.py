@@ -1584,21 +1584,23 @@ def p_projection_action(p) :
     'projection_action : projection LPAREN keywordargument_list RPAREN OBRACE block_list EBRACE'
     if printverbose: print('Projection')
 
-    doc.recompute()
-    p[6][0].Shape.tessellate(0.05) # Ensure the bounding box calculation is not done with the splines, which can give a bad result
-    bbox = p[6][0].Shape.BoundBox
-    for shape in p[6]:
-        shape.Shape.tessellate(0.05)
-        bbox.add(shape.Shape.BoundBox)
-    plane = doc.addObject("Part::Plane","xy_plane_used_for_projection")
-    plane.Length = bbox.XLength
-    plane.Width = bbox.YLength
-    plane.Placement = FreeCAD.Placement(FreeCAD.Vector(\
-                     bbox.XMin,bbox.YMin,0),FreeCAD.Rotation())
-    if gui:
-        plane.ViewObject.hide()
-
     if p[3]['cut'] == 'true' :
+        # The cutting plane is only needed (and only consumed) by the cut=true
+        # MultiCommon below. Building it unconditionally left it as a stray
+        # orphan document root on the cut=false path. Build it here instead.
+        doc.recompute()
+        p[6][0].Shape.tessellate(0.05) # Ensure the bounding box calculation is not done with the splines, which can give a bad result
+        bbox = p[6][0].Shape.BoundBox
+        for shape in p[6]:
+            shape.Shape.tessellate(0.05)
+            bbox.add(shape.Shape.BoundBox)
+        plane = doc.addObject("Part::Plane","xy_plane_used_for_projection")
+        plane.Length = bbox.XLength
+        plane.Width = bbox.YLength
+        plane.Placement = FreeCAD.Placement(FreeCAD.Vector(\
+                         bbox.XMin,bbox.YMin,0),FreeCAD.Rotation())
+        if gui:
+            plane.ViewObject.hide()
         obj = addBoolean('Part::MultiCommon','projection_cut')
         if (len(p[6]) > 1):
             subobj = [fuse(p[6],"projection_cut_implicit_group")]

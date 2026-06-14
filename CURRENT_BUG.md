@@ -1,49 +1,49 @@
-# CURRENT BUG — A2#6 linear_extrude scale-taper (scale with a zero component)
+# CURRENT BUG — A3#9 projection()
 
 ## Observation
-- File family: ex__linear_extrude / linear_extrude-tests (scale-zero 73 %).
-- Repro: `linear_extrude(height=10, scale=0) square([10,10]);` (OpenSCAD bakes
-  `scale=0` → `scale=[0,0]`) and `linear_extrude(height=10, scale=[0,1])
-  square([10,10]);`.
-- Symptom: imported `transform_extrude` root has **null shape, vol 0** for any
-  scale component == 0. Non-degenerate scale (frustum `[0.5,0.5]`) is fine
-  (vol 583.333 exact).
-- Stage: `OpenSCADFeatures.Twist.execute` — recompute leaves `fp.Shape` null;
-  no Python-level crash in the importer.
+- Family: t2d__projection-cut-tests, t2d__projection-tests, ex__projection.
+- The plan flagged "projection-cut ~32 % off / projection-tests 38 %".
+- Repro probes (analytic):
+  - cut=true, centered cube → slice z=0 = 10×10, **area 100.0000** (exact).
+  - cut=true, sphere r=10 $fn=64 → equator circle, **area 314.1497**
+    (vs 100π=314.159, 0.003 % = $fn faceting).
+  - cut=true, 2D square([10,10]) → **area 100.0000** (coplanar, exact).
+  - cut=true, cube translated to z=5 (slice misses it) → **area 0** (exact).
+  - cut=false, centered cube → **2 roots**: a stray
+    `xy_plane_used_for_projection` (Plane, **area 100**) + an empty
+    `projection` placeholder.
 
 ## Hypotheses (each independently testable)
-- H1: scaling a face by a 0 component makes a zero-area `upper_face`; the
-  `MakePipeShell` between the base wire and the degenerate top wire fails, the
-  `except Part.OCCError` branch yields a faces-Compound (or nothing), so the
-  result is null/invalid.
-- H2: the failure is in `transformShape` (the upper face is null before the
-  pipe shell even runs).
-- H3: the failure is generic to the Twist path, unrelated to the zero scale.
+- H1: cut=true is broken (the "32 %" is a real importer error in the slice).
+- H2: the "32 %"/"38 %" was $fn faceting and/or a missing companion file
+  (`projection.stl` in ex__projection), not an importCSG geometry defect, and
+  cut=true is actually correct.
+- H3: cut=false leaks the helper plane `xy_plane_used_for_projection` as an
+  orphan document root because the plane is created unconditionally
+  (importCSG.py p_projection_action lines ~1593-1599) but only consumed
+  (added to `obj.Shapes`) in the cut=true branch.
+- H4: true projection (cut=false shadow/silhouette) is missing geometry — but
+  it is an explicit `usePlaceholderForUnsupported` placeholder by design, and
+  the silhouette has no clean analytic/OCC target.
 
 ## Evidence log
-- Import probe: cone `[0,0]` → null vol 0; wedge `[0,1]` → null vol 0;
-  frustum `[0.5,0.5]` → **valid vol 583.3333**. → H3 REJECTED (non-degenerate
-  works; defect is specific to a zero scale component).
-- Direct OCC probe: `upper_face` after `transformShape(scale 0)` is **not null**,
-  area 0, 4 edges. → H2 REJECTED (transform succeeds; top is a valid but
-  zero-area face).
-- Same probe: `MakePipeShell.isReady()` True, then `build()` raises
-  `OCCError('gp_Dir() - input vector has zero norm')` for both cone and wedge.
-  → **H1 ACCEPTED** (degenerate top wire makes the pipe-shell sweep direction
-  undefined).
-- Construction probe: connecting each base outer-wire vertex to its scaled top
-  vertex (triangle where the top degenerates to a point, quad otherwise) +
-  bottom cap + top cap when non-degenerate, made into a shell→solid, gives
-  exact valid closed solids: cone **333.3333** (=base·h/3), wedge **500.0**
-  (=base·h/2), frustum **583.3333** (=h/3·(A0+A1+√(A0A1))). Matches OpenSCAD.
+- cut=true probes above are all exact (100, 100, 0) or faceting-only (sphere).
+  → **H1 REJECTED, H2 ACCEPTED** (cut=true is correct; residual error was
+  faceting / the missing `projection.stl` companion, not importCSG).
+- cut=false probe shows roots=2 incl. `xy_plane_used_for_projection` area 100.
+  In the cut=true probe roots=1 (the plane is a child of MultiCommon, not a
+  root). `placeholder()` wraps the children, so the children are consumed; only
+  the plane leaks. → **H3 ACCEPTED**.
+- True projection: no OCC primitive; OpenSCAD unions all cross-sections. No
+  clean analytic target; existing design intentionally emits a placeholder.
+  → **H4: out of minimal scope — leave the placeholder; UNKNOWN/postponed.**
 
 ## Verdict
-- **H1 ACCEPTED**; H2, H3 REJECTED.
-- Fix: in `Twist.execute`, when there is **no twist** (`Angle==0`) and a scale
-  component is 0 (degenerate top) and the face is a **single wire** (no holes),
-  build the tapered solid analytically by connecting base→scaled-top perimeter
-  vertices instead of sweeping a pipe shell. Non-degenerate scale and the
-  twist path are untouched. Holed profiles under a zero scale fall through to
-  the existing path (documented limitation; the collapsing-hole solid has no
-  clean analytic target and is out of this minimal scope).
-- Analytic expected: cone (scale 0,0) = base·h/3; wedge (scale 0,1) = base·h/2.
+- **H3 ACCEPTED** (and H2). H1 REJECTED. H4 honestly postponed.
+- Fix: build the `xy_plane_used_for_projection` plane (and the bbox work that
+  only sizes it) **inside the cut=true branch**, so the cut=false path no
+  longer leaks a stray plane root. cut=true geometry is unchanged; true
+  projection stays a placeholder.
+- Analytic expected: `projection(cut=false) cube(...)` imports with **no**
+  `xy_plane_used_for_projection` root (only the empty placeholder); cut=true
+  slice areas unchanged (cube=100, empty-slice=0).

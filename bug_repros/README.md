@@ -36,3 +36,4 @@ several Phase 1–3 defects (one repro per constituent defect).
 | 18 | `18_fuse_extrude_null_propagation.scad` | null operand propagated through extrude/MultiFuse → null union | `024eff9443` |
 | 19 | `19_inf_nan_literals.scad` | `inf`/`nan` literals lexed as ID → statement dropped | `61d6b153f3` |
 | 20 | `20_linear_extrude_scale_taper.scad` | `linear_extrude(scale=0)` taper → null shape (pipe-shell zero-norm) | `ff880cd47a` |
+| 21 | `21_projection_cut_false_plane_leak.scad` | `projection(cut=false)` leaked `xy_plane_used_for_projection` orphan root | `<pending>` |
