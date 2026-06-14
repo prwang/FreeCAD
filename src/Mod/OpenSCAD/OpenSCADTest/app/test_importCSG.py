@@ -372,6 +372,29 @@ projection(cut = true, convexity = 0) {
                                    msg=name)
             FreeCAD.closeDocument(doc.Name)
 
+    def test_import_linear_extrude_twist_line_collapse(self):
+        # A8: a twisted linear_extrude whose top collapses to a LINE (exactly one
+        # zero scale component) is the case MakePipeShell cannot sweep for some
+        # angles -- e.g. twist=180, scale=[0,1] raised in isReady()/build() and
+        # the whole face loop aborted, leaving a null shape. For a single-wire
+        # profile this now falls back to lofting through the rotated+scaled cross
+        # sections, producing a valid solid. Twist preserves cross-sectional
+        # area, so the volume converges to the smooth wedge base*h/2 = 2*2*3/2 = 6
+        # (the discretized loft slightly overshoots, like OpenSCAD's own slices
+        # render -- faceting-class, well within the band asserted here). The point
+        # is that the geometry is no longer dropped to null.
+        csg = """
+linear_extrude(height = 3, center = false, convexity = 1, twist = 180, slices = 20, scale = [0, 1]) {
+	square(size = [2, 2], center = false);
+}
+"""
+        doc = self.utility_create_csg(csg, "twist_line_collapse")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1, [o.Name for o in doc.RootObjects])
+        self.assertTrue(roots[0].Shape.isValid())
+        self.assertAlmostEqual(roots[0].Shape.Volume, 6.0, delta=0.6)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_background_modifier(self):
         # '%' subtrees are preview-only in OpenSCAD and must not contribute
         # geometry to the imported result (nor linger in the document)

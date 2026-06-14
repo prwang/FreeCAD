@@ -1,42 +1,40 @@
-# CURRENT_BUG — A7: resize() auto-scale rule does not match OpenSCAD
+# CURRENT_BUG — A8: linear_extrude twist + line-collapse (one zero scale) → null
 
 ## Observation
-- `p_resize_action`'s auto handling (`if auto[r]=='1': new_size[r]=new_size[0]`)
-  is wrong: it sets an auto axis's target to the X target value, and clobbers an
-  axis that has BOTH auto=true AND its own explicit newsize. Result diverges from
-  OpenSCAD on the resize test files (dominant residual of `t3d__resize-tests`,
-  `t2d__resize-2d-tests`).
-- Previously parked as "UNKNOWN / implementation-defined" — WRONG: OpenSCAD's
-  rule is concrete and deterministic.
+- `linear_extrude(twist=180, slices=20, scale=[0,1]) square([2,2])` (h=3) imports
+  as a NULL shape. Asymmetric: `scale=[1,0]` (twist 180) and `scale=[0,1]` (twist
+  90) both build fine (valid, vol 6.0). The dominant remaining contributor to
+  `t3d__linear_extrude-scale-zero-tests` (two null `Group` roots).
+- A5 fixed only the both-zero (point) collapse with twist; the one-zero (line)
+  collapse with twist stays on the MakePipeShell path, which fails for this combo.
 
-## Evidence — OpenSCAD 2021.01 render battery (cube([9,9,9]) base)
-| newsize | auto | OpenSCAD vol | implied factors |
+## Evidence (FreeCAD vs OpenSCAD 2021.01 render)
+| twist | scale | FreeCAD | OpenSCAD |
 |---|---|---|---|
-| [5,0,0]  | [T,T,F] | 225  | x 5/9, y 5/9 (auto), z 1 |
-| [5,0,20] | [F,T,T] | 2000 | x 5/9, y 20/9 (auto), z 20/9 |
-| [6,0,0]  | [T,T,T] | 216  | uniform 6/9 |
-| [5,0,20] | [F,T,F] | 2000 | x 5/9, y 20/9 (auto), z 20/9 |
-| [0,6,0]  | [T,F,T] | 216  | uniform 6/9 |
-| [10,0,0] | [F,T,T] | 1000 | uniform 10/9 |
+| 180 | [0,1] | **NULL** | 6.106 |
+| 180 | [1,0] | valid 6.0 | 6.156 |
+| 180 | [0,0] | valid 4.0 (A5) | 4.087 |
+| 90  | [0,1] | valid 6.0 | 6.106 |
+- The null originates in the MakePipeShell block: `assert(pipe_shell.isReady())`
+  / `pipe_shell.build()` raises for the [0,1]+twist180 sweep, aborting the face
+  loop before `fp.Shape` is set.
 
-## Verdict — OpenSCAD 2021.01 resize algorithm (ACCEPTED, fits all 6)
-```
-old = bbox extents
-explicit_factors = { newsize[i]/old[i] : newsize[i] > 0 and old[i] > 0 }
-autoscale = max(explicit_factors)               # the LARGEST explicit factor
-for each axis i:
-    if newsize[i] > 0 and old[i] > 0:  factor = newsize[i]/old[i]
-    elif newsize[i] == 0 and auto[i] and old[i] > 0 and explicit_factors:
-                                       factor = autoscale
-    else:                              factor = 1.0     # unchanged
-```
-- An auto axis with newsize 0 follows the MAX explicit factor (not X's value, not
-  a per-axis factor). An axis with its own newsize>0 ignores auto. newsize ≤ 0 on
-  a non-auto axis is left unchanged (subsumes the A6 negative fix). Zero-extent
-  axes (2D z) are left unchanged. "Right anyway": this is OpenSCAD's documented
-  proportional-autoscale behaviour; FreeCAD should match it exactly.
+## Verdict
+- **ACCEPTED:** MakePipeShell's helical sweep between the base wire and the
+  rotated zero-area top segment is ill-conditioned for some twisted line
+  collapses and raises, leaving the result null. The smooth sweep is the right
+  geometry where it succeeds (it gives the exact base·h/2), so keep it — but make
+  it resilient: wrap the sweep, and for a single-wire one-zero (line) twisted
+  profile fall back to building the solid by lofting through the rotated+scaled
+  cross-sections (`_twisted_taper_solid`). Twist preserves area, so the volume
+  still converges to base·h/2.
+- Non-degenerate failures keep the existing Compound-of-faces fallback (no
+  geometry silently dropped).
 
-## Fix
-- Replace the auto/zero for-loop AND the `factors=[...]` list in `p_resize_action`
-  with the algorithm above. Verify FreeCAD .step volumes match the battery and
-  the resize corpus cases converge.
+## (separate, NOT this bug) pure-twist faceting is a comparator gap
+For twist + nonzero scale, FreeCAD's smooth helical sweep is the EXACT solid
+(twist90 square h=20 = base·h = 2000); OpenSCAD's default-`slices` render
+overshoots (2117) and converges to 2000 only as slices→∞ (2050/2020/2005/2001 at
+slices 20/50/200/1000). This is `slices`-driven faceting, which `validate.py
+--refine-fn` does not currently rewrite. Fix is in the comparator (refine
+`slices` like `$fn`), not the importer — handled separately.

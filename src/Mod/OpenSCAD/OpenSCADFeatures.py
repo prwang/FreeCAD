@@ -474,48 +474,86 @@ class Twist:
                         solids.append(tapered)
                         fp.Shape = Part.Compound(solids)
                         continue
-                upper_face = lower_face.copy()
-                face_transform = FreeCAD.Matrix()
-                face_transform.rotateZ(math.radians(fp.Angle.Value))
-                face_transform.scale(fp.Scale[0], fp.Scale[1], 1.0)
-                face_transform.move(FreeCAD.Vector(0,0,fp.Height.Value))
-                upper_face.transformShape(face_transform, False, True) # True to check for non-uniform scaling
-
-                spine = Part.makePolygon([(0,0,0),(0,0,fp.Height.Value)])
-                if fp.Angle.Value == 0.0:
-                    auxiliary_spine = None
-                else:
-                    num_revolutions = abs(fp.Angle.Value)/360.0
-                    pitch = fp.Height.Value / num_revolutions
-                    height = fp.Height.Value
-                    radius = 1.0
-                    if fp.Angle.Value < 0.0:
-                        left_handed = True
-                    else:
-                        left_handed = False
-
-                    auxiliary_spine = Part.makeHelix(pitch, height, radius, 0.0, left_handed)
-
-                faces = [lower_face,upper_face]
-                for wire1,wire2 in zip(lower_face.Wires,upper_face.Wires):
-                    pipe_shell = Part.BRepOffsetAPI.MakePipeShell(spine)
-                    pipe_shell.setSpineSupport(spine)
-                    pipe_shell.add(wire1)
-                    pipe_shell.add(wire2)
-                    if auxiliary_spine:
-                        pipe_shell.setAuxiliarySpine(auxiliary_spine,True,0)
-                    assert(pipe_shell.isReady())
-                    pipe_shell.build()
-                    faces.extend(pipe_shell.shape().Faces)
+                # General path: a smooth sweep (helical when there is a twist).
+                # MakePipeShell yields the exact solid when it succeeds, but its
+                # sweep is ill-conditioned for some twisted degenerate collapses
+                # (e.g. twist=180, scale=[0,1]): isReady()/build() raise and the
+                # whole face loop used to abort, leaving fp.Shape null. Build the
+                # sweep defensively; only when it RAISES (and only for a
+                # single-wire one-zero/line twisted profile) fall back to lofting
+                # through the rotated+scaled cross-sections. The success path and
+                # the Shell/Solid OCCError->Compound fallback are unchanged, so
+                # the many working twist cases are unaffected.
+                faces = None
+                built = False
                 try:
-                    fullshell = Part.Shell(faces)
-                    solid=Part.Solid(fullshell)
-                    if solid.Volume < 0:
-                        solid.reverse()
-                    assert(solid.Volume >= 0)
-                    solids.append(solid)
-                except Part.OCCError:
-                    solids.append(Part.Compound(faces))
+                    upper_face = lower_face.copy()
+                    face_transform = FreeCAD.Matrix()
+                    face_transform.rotateZ(math.radians(fp.Angle.Value))
+                    face_transform.scale(fp.Scale[0], fp.Scale[1], 1.0)
+                    face_transform.move(FreeCAD.Vector(0,0,fp.Height.Value))
+                    upper_face.transformShape(face_transform, False, True) # True to check for non-uniform scaling
+
+                    spine = Part.makePolygon([(0,0,0),(0,0,fp.Height.Value)])
+                    if fp.Angle.Value == 0.0:
+                        auxiliary_spine = None
+                    else:
+                        num_revolutions = abs(fp.Angle.Value)/360.0
+                        pitch = fp.Height.Value / num_revolutions
+                        height = fp.Height.Value
+                        radius = 1.0
+                        if fp.Angle.Value < 0.0:
+                            left_handed = True
+                        else:
+                            left_handed = False
+
+                        auxiliary_spine = Part.makeHelix(pitch, height, radius, 0.0, left_handed)
+
+                    faces = [lower_face,upper_face]
+                    for wire1,wire2 in zip(lower_face.Wires,upper_face.Wires):
+                        pipe_shell = Part.BRepOffsetAPI.MakePipeShell(spine)
+                        pipe_shell.setSpineSupport(spine)
+                        pipe_shell.add(wire1)
+                        pipe_shell.add(wire2)
+                        if auxiliary_spine:
+                            pipe_shell.setAuxiliarySpine(auxiliary_spine,True,0)
+                        assert(pipe_shell.isReady())
+                        pipe_shell.build()
+                        faces.extend(pipe_shell.shape().Faces)
+                    built = True
+                except Exception:
+                    built = False
+
+                if built:
+                    try:
+                        fullshell = Part.Shell(faces)
+                        solid=Part.Solid(fullshell)
+                        if solid.Volume < 0:
+                            solid.reverse()
+                        assert(solid.Volume >= 0)
+                        solids.append(solid)
+                    except Part.OCCError:
+                        solids.append(Part.Compound(faces))
+                elif len(lower_face.Wires) == 1 and one_zero \
+                        and fp.Angle.Value != 0.0:
+                    # twist + line-collapse of a SINGLE-wire profile: the sweep
+                    # could not be built; loft through the rotated+scaled cross
+                    # sections instead. One slice per ~9 deg of twist (>=2). Twist
+                    # preserves area, so the volume converges to base*h/2. A
+                    # holed/multi-wire twisted taper-to-line self-intersects and
+                    # has no clean OCC solid, so it is left out (below) rather
+                    # than forced into an invalid shape.
+                    nsl = max(2, int(math.ceil(abs(fp.Angle.Value) / 9.0)))
+                    tapered = self._twisted_taper_solid(
+                        lower_face, fp.Height.Value, sx, sy,
+                        fp.Angle.Value, nsl)
+                    if tapered is not None:
+                        solids.append(tapered)
+                # else: the sweep could not be built and there is no clean
+                # analytic fallback (e.g. a holed twisted taper-to-line). Append
+                # nothing -- this face contributes no geometry, exactly as before
+                # this branch existed (the loop used to abort to a null shape),
+                # but without leaving an invalid Compound that poisons unions.
                 fp.Shape=Part.Compound(solids)
 
     @staticmethod
@@ -573,6 +611,76 @@ class Twist:
                     tdistinct.append(q)
             if len(tdistinct) >= 3:
                 faces.extend(self._planar_faces(top))
+            shell = Part.Shell(faces)
+            solid = Part.Solid(shell)
+            if solid.Volume < 0:
+                solid.reverse()
+            if solid.isValid() and solid.Volume > 1e-9:
+                return solid
+        except Part.OCCError:
+            return None
+        return None
+
+    def _twisted_taper_solid(self, face, h, sx, sy, angle_deg, nslices):
+        """Tapered + twisted extrude of a single-wire profile when one scale
+        component is 0 (the top collapses to a line) and there is a twist, the
+        case MakePipeShell cannot sweep. Lofts the solid through `nslices`
+        intermediate cross-sections: slice k is the base outer wire scaled by the
+        linearly-interpolated taper factor and rotated by angle*(k/nslices),
+        capping the degenerate final slice. Twist preserves cross-sectional area,
+        so the volume converges to the smooth taper value (base*h/2 for a line
+        collapse). Returns a valid solid or None to fall through."""
+        import FreeCAD
+        import Part
+        import math
+        V = FreeCAD.Vector
+        try:
+            ow = face.OuterWire
+            pts = [(v.Point.x, v.Point.y) for v in ow.OrderedVertexes]
+            # drop a duplicate closing vertex if present
+            while len(pts) >= 2 and abs(pts[0][0] - pts[-1][0]) < 1e-9 \
+                    and abs(pts[0][1] - pts[-1][1]) < 1e-9:
+                pts.pop()
+            n = len(pts)
+            if n < 3:
+                return None
+            ang = math.radians(angle_deg)
+            rings = []
+            for k in range(nslices + 1):
+                u = float(k) / nslices
+                fx = 1.0 + u * (sx - 1.0)
+                fy = 1.0 + u * (sy - 1.0)
+                th = ang * u
+                c, s = math.cos(th), math.sin(th)
+                ring = []
+                for (x, y) in pts:
+                    X, Y = fx * x, fy * y
+                    ring.append(V(X * c - Y * s, X * s + Y * c, h * u))
+                rings.append(ring)
+            faces = [face]  # bottom cap (original 2D profile at z=0)
+            for k in range(nslices):
+                for i in range(n):
+                    j = (i + 1) % n
+                    loop = [rings[k][i], rings[k][j],
+                            rings[k + 1][j], rings[k + 1][i]]
+                    clean = []
+                    for q in loop:
+                        if not clean or (q - clean[-1]).Length > 1e-9:
+                            clean.append(q)
+                    while len(clean) >= 2 and (clean[0] - clean[-1]).Length <= 1e-9:
+                        clean.pop()
+                    if len(clean) < 3:
+                        continue
+                    faces.extend(self._planar_faces(clean))
+            # top cap only if the final ring is still a real polygon (it is not
+            # when a scale component is 0 -- the top is a line or point)
+            topring = rings[-1]
+            tdistinct = []
+            for q in topring:
+                if not any((q - r).Length < 1e-9 for r in tdistinct):
+                    tdistinct.append(q)
+            if len(tdistinct) >= 3:
+                faces.extend(self._planar_faces(topring))
             shell = Part.Shell(faces)
             solid = Part.Solid(shell)
             if solid.Volume < 0:
