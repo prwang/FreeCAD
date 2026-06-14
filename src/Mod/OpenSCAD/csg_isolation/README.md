@@ -118,7 +118,7 @@ whole machine. Capped-out cases are discarded: conversions get
 |---|---|
 | `csg2step.py` | runs under `FreeCADCmd`; env `CSG2STEP_IN`/`CSG2STEP_OUT`. Sets OpenSCAD prefs headlessly, `importCSG.open()`, sanity-checks every root shape, exports STEP + STL, emits one JSON record between `CSG2STEP_RESULT_BEGIN/END` markers. |
 | `run_all.py` | drives the corpus, one subprocess per file (crash/hang isolation, per-file `--timeout`, `--mem-gb` address-space cap); writes `csg_out/summary.json` + per-case `.log`. |
-| `validate.py` | pure python, no FreeCAD; renders `<name>.ref.stl` with openscad (cached by mtime, `--mem-gb` capped), compares volume (divergence theorem) and bbox of both STLs. Thresholds: `--vol-tol` 2 %, `--bbox-tol` 0.1 mm. Writes `csg_out/validation.json`. |
+| `validate.py` | pure python, no FreeCAD; renders `<name>.ref.stl` with openscad (cached by mtime, `--mem-gb` capped), compares volume (divergence theorem) and bbox of both STLs. Thresholds: `--vol-tol` 2 %, `--bbox-tol` 0.1 mm, widened per case by the faceting envelope; `--refine-fn N` re-renders the reference smooth to separate faceting from real bugs (see below). Writes `csg_out/validation.json`. |
 | `trace_null.py` | diagnostic: monkeypatches `importCSG.checkObjShape`/`fuse` to localize null/invalid shapes while the tree is built; dumps root/invalid object stats after the parse. |
 | `minimize.py` | diagnostic: brace-aware `.csg` subtree splitter for bisecting a failing case down to a minimal repro (see workflow below). |
 
@@ -155,10 +155,38 @@ OpenSCAD cannot export 2D geometry to STL, so 2D cases are compared as
   `linear_extrude(height = 1)` for STL-level validation.
 * `test_result.md` — human-readable result table snapshots.
 
-Expected, tolerated deviation: OpenSCAD circles are inscribed n-gons
-(`$fn`), FreeCAD builds true circles when `$fn >= useMaxFN`; relative
-area/volume deficit ≈ `(2π/n)²/6` (0.07 % at `$fn=96`) — within the 2 %
-volume tolerance. Do not "fix" this.
+### Faceting vs. real bug
+
+OpenSCAD approximates curved primitives with `$fn` inscribed facets; FreeCAD
+builds the exact smooth solid. The resulting volume/bbox gap is geometry, not a
+defect — and below `$fn≈50` it dwarfs the 2 % tolerance, so a fixed threshold
+would flag faceting as a bug. The verified deficit fractions (δ = inscribed
+deficit; the *measured* volume error is δ/(1−δ) because the OpenSCAD reference
+is the smaller, inscribed solid):
+
+| `$fn` | δ₂ circle (exact `1−sin(2π/n)/(2π/n)`) | δ₃ sphere (empirical `≈16.4/n²`) |
+|--:|--:|--:|
+| 5 | 24 % | ~49–66 % |
+| 30 (≈`$fa=12` default) | 0.7 % | 1.8 % |
+| 50 | 0.26 % | 0.66 % |
+| 128 | 0.04 % | 0.10 % |
+
+`validate.py` separates the two:
+
+* **`--refine-fn N` (authoritative).** Re-renders the reference with every
+  baked `$fn` rewritten to `N` (use 128 → δ < 0.1 %), so the reference is
+  effectively smooth. A `MISMATCH` that collapses to `MATCH` was faceting; one
+  that survives is a real bug. Heavy meshes (e.g. 100+ spheres at `$fn=128`)
+  can exceed the memory cap; that render falls back per-case to the un-refined
+  render + envelope and is flagged `refine-OOM`.
+* **Analytic envelope (secondary, always on).** Without `--refine-fn`, each
+  case's volume tolerance is widened to `δ(n_min)/(1−δ(n_min))` and its bbox
+  tolerance by `(1−cos(π/n_min))·extent`, where `n_min` is the file's coarsest
+  curved primitive (`$fn=0` ⇒ ~30). A conservative upper bound (treats the whole
+  model as curved), so a plain run already suppresses most faceting false
+  positives. A sanity aid — `--refine-fn` is the authority.
+
+Do not "fix" faceting in the importer.
 
 ## Debugging workflow
 
