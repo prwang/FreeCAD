@@ -13,7 +13,7 @@
 // FIX: importCSG.py p_resize_action -> after baking new_part.Shape, remove
 //   p[6][0] and its subtree (OutListRecursive) from the document; its geometry
 //   is fully copied into new_part and nothing else references it. Commit
-//   2ff186a00a.
+//   b8a90c6d93.
 // EXPECTED (OpenSCAD): resize([4,0,0]) scales X from 2 to 4 and leaves Y,Z at 2
 //   (a 0 newsize component means "leave that axis unchanged"), giving exactly
 //   ONE solid of volume 4*2*2 = 16 -- no leftover 8-unit raw cube.

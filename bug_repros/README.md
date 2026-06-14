@@ -38,4 +38,4 @@ several Phase 1–3 defects (one repro per constituent defect).
 | 20 | `20_linear_extrude_scale_taper.scad` | `linear_extrude(scale=0)` taper → null shape (pipe-shell zero-norm) | `ff880cd47a` |
 | 21 | `21_projection_cut_false_plane_leak.scad` | `projection(cut=false)` leaked `xy_plane_used_for_projection` orphan root | `3ba221ab68` |
 | 22 | `22_multmatrix_scale_source_leak.scad` | non-rigid `multmatrix` leaked untransformed source as orphan root | `ac08e5e2c5` |
-| 23 | `23_resize_source_leak.scad` | `resize()` leaked un-resized source child as orphan root (double-count) | `2ff186a00a` |
+| 23 | `23_resize_source_leak.scad` | `resize()` leaked un-resized source child as orphan root (double-count) | `b8a90c6d93` |
