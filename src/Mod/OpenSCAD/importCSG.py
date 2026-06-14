@@ -1431,22 +1431,33 @@ def p_polygon_action_plus_path(p) :
     v = convert_points_list_to_vector(p[6])
     if printverbose: print("Path Set List")
     if printverbose: print(p[12])
+    # Build one wire per path. The previous code made a separate face per path
+    # and pushed it inside the loop ("This only pushes last polygon"), so a
+    # polygon with an outer boundary plus hole paths imported as only the last
+    # sub-path. OpenSCAD fills multiple paths by the even-odd rule; for the
+    # common outer-plus-holes case build a single face whose outer boundary is
+    # the largest wire and whose remaining wires are holes.
+    wires = []
     for i in p[12] :
         if printverbose: print(i)
-        mypolygon = doc.addObject('Part::Feature','wire')
-        path_list = []
-        for j in i :
-            j = int(j)
-            if printverbose: print(j)
-            path_list.append(v[j])
-#       Close path
-        path_list.append(v[int(i[0])])
+        path_list = [v[int(j)] for j in i]
+        path_list.append(v[int(i[0])])  # close path
         if printverbose: print('Path List')
         if printverbose: print(path_list)
-        wire = Part.makePolygon(path_list)
-        mypolygon.Shape = Part.Face(wire)
-        p[0] = [mypolygon]
-#       This only pushes last polygon
+        wires.append(Part.makePolygon(path_list))
+    mypolygon = doc.addObject('Part::Feature', p[1])
+    if len(wires) == 1:
+        mypolygon.Shape = Part.Face(wires[0])
+    else:
+        # Largest wire is the outer boundary; subtract the rest as holes. A
+        # boolean cut is orientation-independent (Part.Face([outer, inner])
+        # would otherwise add the inner area instead of removing it).
+        wires.sort(key=lambda w: Part.Face(w).Area, reverse=True)
+        face = Part.Face(wires[0])
+        for hole in wires[1:]:
+            face = face.cut(Part.Face(hole))
+        mypolygon.Shape = face
+    p[0] = [mypolygon]
 
 def make_face(v1,v2,v3):
     wire = Part.makePolygon([v1,v2,v3,v1])

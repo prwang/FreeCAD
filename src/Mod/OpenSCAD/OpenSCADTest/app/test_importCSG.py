@@ -515,6 +515,24 @@ union() {
         self.assertAlmostEqual (wire.Shape.Area, 5000.0)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_polygon_with_hole(self):
+        # Priority A: a polygon with an outer path plus hole path(s). The loop
+        # built a separate face per path and pushed it from *inside* the loop
+        # ("This only pushes last polygon"), so the holes were dropped and only
+        # the last sub-path survived. OpenSCAD fills the paths by the even-odd
+        # rule: here a 10x10 outer with a 4x4 hole -> area 100 - 16 = 84.
+        csg = ("polygon(points = [[0, 0], [10, 0], [10, 10], [0, 10], "
+               "[3, 3], [7, 3], [7, 7], [3, 7]], "
+               "paths = [[0, 1, 2, 3], [4, 5, 6, 7]], convexity = 1);\n")
+        doc = self.utility_create_csg(csg, "polygon_with_hole")
+        obj = doc.ActiveObject
+        self.assertIsNotNone(obj)
+        self.assertAlmostEqual(obj.Shape.Area, 84.0, delta=1e-6)
+        # one face with one outer wire and one inner (hole) wire
+        self.assertEqual(len(obj.Shape.Faces), 1)
+        self.assertEqual(len(obj.Shape.Wires), 2)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_polyhedron(self):
         doc = self.utility_create_scad(
 """
