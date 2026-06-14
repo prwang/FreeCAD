@@ -452,6 +452,38 @@ union() {
         self.assertEqual(nulls, [], [o.Name for o in nulls])
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_non_finite_dimension(self):
+        # Priority A: OpenSCAD emits inf/nan (e.g. from 1/0) as bare tokens in
+        # compiled CSG, and its reader treats them as an unknown variable ->
+        # undef. The lexer tokenised 'inf' as an identifier -> "syntax error
+        # near 'inf'" -> PLY recovery dropped the whole statement, so a finite
+        # primitive whose only oddity is $fn = inf (undef -> default facets in
+        # OpenSCAD) vanished, and primitive-inf-tests imported as nothing. Now
+        # inf/nan lex as NUMBER and the primitives guard non-finite values:
+        #   - $fn = inf -> treated as unset -> smooth solid renders;
+        #   - inf dimension/vertex -> empty (would otherwise build a degenerate
+        #     OCC solid or throw "Failed to create face from wire").
+        csg = """
+cylinder($fn = inf, $fa = 12, $fs = 2, h = 2, r1 = 3, r2 = 3, center = false);
+sphere($fn = 0, $fa = 12, $fs = 2, r = inf);
+polyhedron(points = [[inf, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], faces = [[0, 1, 2], [0, 2, 3], [0, 3, 1], [1, 3, 2]], convexity = 1);
+"""
+        doc = self.utility_create_csg(csg, "non_finite_dim")
+        # the inf-$fn cylinder survives the parse and renders smooth: V = pi r^2 h
+        cyl = doc.getObject("cylinder")
+        self.assertIsNotNone(cyl)
+        self.assertFalse(cyl.Shape.isNull())
+        self.assertAlmostEqual(cyl.Shape.Volume, math.pi * 9.0 * 2.0, delta=1e-6)
+        # the inf-radius sphere is empty
+        sph = doc.getObject("sphere")
+        self.assertIsNotNone(sph)
+        self.assertTrue(sph.Shape.isNull() or sph.Shape.Volume == 0.0)
+        # the inf-vertex polyhedron is empty (no crash building the face)
+        poly = doc.getObject("polyhedron")
+        self.assertIsNotNone(poly)
+        self.assertTrue(poly.Shape.isNull() or poly.Shape.Volume == 0.0)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_intersection_multi_in_linear_extrude(self):
         # shape of the real-world failure: a >2-child 2D intersection whose
         # result is consumed by linear_extrude before any document recompute

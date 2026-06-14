@@ -122,6 +122,15 @@ def t_comment2(t):
 
 def t_ID(t):
     r'[$]?[a-zA-Z_]+[0-9]*'
+    # OpenSCAD emits inf/nan as bare tokens in compiled CSG (e.g. from 1/0). Its
+    # own CSG reader treats them as an unknown variable -> undef. Lex them as
+    # NUMBER so float() yields +-inf/nan and the parser does not derail (a stray
+    # syntax error here makes PLY discard the whole statement, silently dropping
+    # valid sibling geometry); the primitive actions guard non-finite values to
+    # match OpenSCAD (undef dimension -> empty; undef $fn -> default facets).
+    if t.value.lower() in ('inf', 'nan'):
+        t.type = 'NUMBER'
+        return t
     t.type = reserved_map.get(t.value, "ID")
     return t
 

@@ -34,6 +34,7 @@ __url__ = ["http://www.sloan-home.co.uk/ImportCSG"]
 printverbose = False
 
 import io
+import math
 import os
 
 import xml.sax
@@ -1201,6 +1202,13 @@ def p_sphere_action(p):
     'sphere_action : sphere LPAREN keywordargument_list RPAREN SEMICOL'
     if printverbose: print("Sphere : ",p[3])
     r = float(p[3]['r'])
+    if not math.isfinite(r):
+        # OpenSCAD renders a sphere with an inf/nan (undef) radius as empty.
+        if printverbose: print("Non-finite sphere radius -> empty")
+        mysphere = doc.addObject("Part::Feature",p[1])
+        mysphere.Shape = Part.Compound([])
+        p[0] = [mysphere]
+        return
     mysphere = doc.addObject("Part::Sphere",p[1])
     mysphere.Radius = r
     if printverbose: print("Push Sphere")
@@ -1230,12 +1238,15 @@ def p_cylinder_action(p):
     h = float(p[3]['h'])
     r1 = float(p[3]['r1'])
     r2 = float(p[3]['r2'])
-    n = int(round(float(p[3]['$fn'])))
+    # $fn = inf/nan (OpenSCAD: undef) means "unset" -> fall back to $fa/$fs
+    # (here, n = 0 -> the smooth primitive). int(round(inf)) would raise.
+    fn = float(p[3]['$fn'])
+    n = int(round(fn)) if math.isfinite(fn) else 0
     fnmax = FreeCAD.ParamGet(\
         "User parameter:BaseApp/Preferences/Mod/OpenSCAD").\
         GetInt('useMaxFN', 16)
     if printverbose: print(p[3])
-    if h > 0:
+    if h > 0 and math.isfinite(h) and math.isfinite(r1) and math.isfinite(r2):
         if ( r1 == r2 and r1 > 0):
             if printverbose: print("Make Cylinder")
             if n < 3 or fnmax != 0 and n > fnmax:
@@ -1290,8 +1301,8 @@ def p_cylinder_action(p):
             FreeCAD.Console.PrintWarning('cylinder with radius zero\n')
             mycyl=doc.addObject("Part::Feature","emptycyl")
             mycyl.Shape = Part.Compound([])
-    else: # h == 0
-        FreeCAD.Console.PrintWarning('cylinder with height <= zero\n')
+    else: # h <= 0 or a non-finite (inf/nan -> undef) dimension
+        FreeCAD.Console.PrintWarning('cylinder with non-positive or non-finite dimension\n')
         mycyl=doc.addObject("Part::Feature","emptycyl")
         mycyl.Shape = Part.Compound([])
     if printverbose: print("Center = ",tocenter)
@@ -1318,7 +1329,8 @@ def p_cube_action(p):
     'cube_action : cube LPAREN keywordargument_list RPAREN SEMICOL'
     global doc
     l,w,h = [float(str1) for str1 in p[3]['size']]
-    if (l > 0 and w > 0 and h >0):
+    # inf/nan (OpenSCAD: undef) dimension -> empty; inf > 0 is True, so guard it.
+    if (l > 0 and w > 0 and h > 0 and math.isfinite(l) and math.isfinite(w) and math.isfinite(h)):
         if printverbose: print("cube : ",p[3])
         mycube=doc.addObject('Part::Box',p[1])
         mycube.Length=l
@@ -1337,12 +1349,21 @@ def p_circle_action(p) :
     'circle_action : circle LPAREN keywordargument_list RPAREN SEMICOL'
     if printverbose: print("Circle : "+str(p[3]))
     r = float(p[3]['r'])
+    if not math.isfinite(r):
+        # OpenSCAD renders a circle with an inf/nan (undef) radius as empty.
+        if printverbose: print("Non-finite circle radius -> empty")
+        mycircle = doc.addObject('Part::Feature', p[1])
+        mycircle.Shape = Part.Shape()
+        p[0] = [mycircle]
+        return
     # Avoid zero radius
     if r == 0 : r = 0.00001
     # $fn may be fractional (e.g. circle($fn = 0.1)); OpenSCAD rounds it to an
     # integer fragment count, so int(p[3]['$fn']) crashes on '0.1'. Mirror
-    # p_cylinder_action, which already rounds.
-    n = int(round(float(p[3]['$fn'])))
+    # p_cylinder_action, which already rounds. A non-finite $fn (inf/nan ->
+    # undef) means "unset" -> n = 0 -> the smooth circle; int(round(inf)) raises.
+    fn = float(p[3]['$fn'])
+    n = int(round(fn)) if math.isfinite(fn) else 0
     fnmax = FreeCAD.ParamGet(\
         "User parameter:BaseApp/Preferences/Mod/OpenSCAD").\
         GetInt('useMaxFN',16)
@@ -1375,8 +1396,9 @@ def p_square_action(p) :
     size = p[3]['size']
     x = float(size[0])
     y = float(size[1])
-    if x <= 0 or y <= 0:
-        # OpenSCAD renders a square with a non-positive dimension as empty.
+    if x <= 0 or y <= 0 or not math.isfinite(x) or not math.isfinite(y):
+        # OpenSCAD renders a square with a non-positive or inf/nan (undef)
+        # dimension as empty.
         # A Part::Plane with Length/Width <= 0 is degenerate (an invalid face
         # or a bogus non-empty one), so build a null-shaped operand instead.
         # Keeping it as an operand (rather than dropping it) lets booleans see
@@ -1425,6 +1447,13 @@ def p_text_action(p) :
     FreeCAD.Console.PrintMessage("textmsg : "+t+"\n")
     p[0] = [processTextCmd(t)]
 
+def all_points_finite(points):
+    # inf/nan (OpenSCAD: undef) coordinates make OCC's wire/face builders throw;
+    # OpenSCAD reports invalid points and renders nothing, so a polygon/polyhedron
+    # with a non-finite vertex must import as empty. Accepts 2D or 3D point lists.
+    return all(math.isfinite(float(c)) for pt in points for c in pt)
+
+
 def convert_points_list_to_vector(l):
     v = []
     for i in l :
@@ -1438,6 +1467,12 @@ def p_polygon_action_nopath(p) :
     'polygon_action_nopath : polygon LPAREN points EQ OSQUARE points_list_2d ESQUARE COMMA paths EQ undef COMMA keywordargument_list RPAREN SEMICOL'
     if printverbose: print("Polygon")
     if printverbose: print(p[6])
+    if not all_points_finite(p[6]):
+        if printverbose: print("Polygon with non-finite vertex -> empty")
+        mypolygon = doc.addObject('Part::Feature', p[1])
+        mypolygon.Shape = Part.Shape()
+        p[0] = [mypolygon]
+        return
     v = convert_points_list_to_vector(p[6])
     mypolygon = doc.addObject('Part::Feature',p[1])
     if printverbose: print("Make Parts")
@@ -1461,6 +1496,12 @@ def p_polygon_action_plus_path(p) :
     'polygon_action_plus_path : polygon LPAREN points EQ OSQUARE points_list_2d ESQUARE COMMA paths EQ OSQUARE path_set ESQUARE COMMA keywordargument_list RPAREN SEMICOL'
     if printverbose: print("Polygon with Path")
     if printverbose: print(p[6])
+    if not all_points_finite(p[6]):
+        if printverbose: print("Polygon with non-finite vertex -> empty")
+        mypolygon = doc.addObject('Part::Feature', p[1])
+        mypolygon.Shape = Part.Shape()
+        p[0] = [mypolygon]
+        return
     v = convert_points_list_to_vector(p[6])
     if printverbose: print("Path Set List")
     if printverbose: print(p[12])
@@ -1501,6 +1542,14 @@ def p_polyhedron_action(p) :
     '''polyhedron_action : polyhedron LPAREN points EQ OSQUARE points_list_3d ESQUARE COMMA faces EQ OSQUARE path_set ESQUARE COMMA keywordargument_list RPAREN SEMICOL
                       | polyhedron LPAREN points EQ OSQUARE points_list_3d ESQUARE COMMA triangles EQ OSQUARE points_list_3d ESQUARE COMMA keywordargument_list RPAREN SEMICOL'''
     if printverbose: print("Polyhedron Points")
+    if not all_points_finite(p[6]):
+        # inf/nan (OpenSCAD: undef) vertex -> OpenSCAD reports invalid points and
+        # renders nothing; an inf coordinate also makes OCC's face builder throw.
+        if printverbose: print("Polyhedron with non-finite vertex -> empty")
+        mypolyhed = doc.addObject('Part::Feature', p[1])
+        mypolyhed.Shape = Part.Compound([])
+        p[0] = [mypolyhed]
+        return
     v = []
     for i in p[6] :
         if printverbose: print(i)
