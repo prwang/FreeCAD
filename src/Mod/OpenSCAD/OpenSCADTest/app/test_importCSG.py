@@ -256,6 +256,32 @@ resize(newsize = [-5, 0, 0], auto = [0, 0, 0], convexity = 0) {
         self.assertAlmostEqual(roots[0].Shape.Volume, 1.0, delta=1e-3)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_resize_auto(self):
+        # A7: resize() auto-scale, matched to OpenSCAD 2021.01. The old code did
+        # `if auto[r]: new_size[r] = new_size[0]`, which used the X target for
+        # every auto axis and clobbered an axis that had BOTH auto AND its own
+        # explicit newsize. OpenSCAD's rule: an axis with newsize>0 scales by
+        # newsize/old; the autoscale factor is the MAX of those explicit factors;
+        # an auto axis with newsize 0 takes that autoscale factor. Verified
+        # against OpenSCAD renders on a 9x9x9 cube:
+        #   [5,0,0]  auto [T,T,F] -> 5,5,9   = 225  (y follows x's 5/9)
+        #   [5,0,20] auto [F,T,T] -> 5,20,20 = 2000 (y follows max(5/9,20/9)=20/9;
+        #                                            z keeps its own 20)
+        #   [6,0,0]  auto [T,T,T] -> 6,6,6   = 216  (uniform)
+        def resize(newsize, auto):
+            return (f"resize(newsize = {newsize}, auto = {auto}, convexity = 0) "
+                    f"{{\n\tcube(size = [9, 9, 9], center = false);\n}}\n")
+        for name, newsize, auto, expected in [
+                ("resize_auto_partial", "[5, 0, 0]", "[1, 1, 0]", 225.0),
+                ("resize_auto_on_explicit", "[5, 0, 20]", "[0, 1, 1]", 2000.0),
+                ("resize_auto_uniform", "[6, 0, 0]", "[1, 1, 1]", 216.0)]:
+            doc = self.utility_create_csg(resize(newsize, auto), name)
+            roots = self.utility_solid_roots(doc)
+            self.assertEqual(len(roots), 1, f"{name}: {[o.Name for o in doc.RootObjects]}")
+            self.assertAlmostEqual(roots[0].Shape.Volume, expected, delta=1e-2,
+                                   msg=name)
+            FreeCAD.closeDocument(doc.Name)
+
     def test_import_projection_cut_false_no_plane_leak(self):
         # A3#9: p_projection_action built the helper "xy_plane_used_for_projection"
         # Part::Plane unconditionally, but only the cut=true branch consumes it

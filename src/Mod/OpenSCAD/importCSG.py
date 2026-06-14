@@ -518,27 +518,35 @@ def p_resize_action(p):
     p[6][0].Shape.tessellate(0.05)
     old_bbox = p[6][0].Shape.BoundBox
     old_size = [old_bbox.XLength, old_bbox.YLength, old_bbox.ZLength]
-    for r in range(0,3):
-        if auto[r] == '1':
-            new_size[r] = new_size[0]
-        # OpenSCAD leaves an axis unchanged when its target newsize is <= 0 (a 0
-        # means "don't resize this axis"; a negative is likewise ignored, NOT a
-        # mirror -- resize([-5,0,0]) cube(1) renders as the unit cube, vol 1).
-        # The old guard was an exact string compare `== '0'`, so a negative value
-        # (formatted e.g. '-5') slipped through to factor -5 and produced a
-        # mirrored/scaled solid (vol 5). Use a numeric <= 0 test instead.
-        if float(new_size[r]) <= 0:
-            new_size[r] = str(old_size[r])
+    # OpenSCAD (2021.01) resize() scale rule, matched exactly:
+    #   * an axis with newsize > 0 (and a non-zero extent) scales by
+    #     newsize/old;
+    #   * the "autoscale" factor is the MAX of those explicit per-axis factors;
+    #   * an auto axis whose own newsize is 0 takes that autoscale factor
+    #     (proportional scaling -- it follows the largest explicit axis, NOT the
+    #     X target and NOT its own per-axis factor);
+    #   * everything else is left unchanged (factor 1.0): a non-auto axis with
+    #     newsize <= 0 (0 means "don't resize"; a negative is ignored, NOT a
+    #     mirror), a zero-extent axis (e.g. the Z of a 2D shape -- nothing to
+    #     stretch, and this also avoids a ZeroDivisionError), or any axis when no
+    #     positive newsize exists to anchor the autoscale.
+    ns = [float(v) for v in new_size]
+    is_auto = [a == '1' for a in auto]
+    explicit = [ns[r] / old_size[r] for r in range(3)
+                if ns[r] > 0 and old_size[r] > 0]
+    autoscale = max(explicit) if explicit else 1.0
+
+    factors = []
+    for r in range(3):
+        if ns[r] > 0 and old_size[r] > 0:
+            factors.append(ns[r] / old_size[r])
+        elif ns[r] == 0 and is_auto[r] and old_size[r] > 0 and explicit:
+            factors.append(autoscale)
+        else:
+            factors.append(1.0)
 
     # Calculate a transform matrix from the current bounding box to the new one.
-    # An axis with zero extent (e.g. the Z axis of a 2D shape) cannot be scaled
-    # to a finite size -- there is nothing to stretch -- so OpenSCAD leaves it
-    # unchanged. Guard the division: factor 1.0 when old_size[r] == 0, which
-    # also avoids the ZeroDivisionError that aborted the whole import.
     transform_matrix = FreeCAD.Matrix()
-
-    factors = [1.0 if old_size[r] == 0 else float(new_size[r]) / old_size[r]
-               for r in range(0, 3)]
     scale = FreeCAD.Vector(*factors)
 
     transform_matrix.scale(scale)
