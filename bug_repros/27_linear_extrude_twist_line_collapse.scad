@@ -15,7 +15,7 @@
 //   path and the Shell/Solid OCCError->Compound fallback are unchanged, so the
 //   many working twist cases are untouched. A holed/multi-wire twisted
 //   taper-to-line self-intersects and has no clean OCC solid -> left empty
-//   (not forced into an invalid shape that would poison unions). Commit <pending>.
+//   (not forced into an invalid shape that would poison unions). Commit e3b64af870.
 // EXPECTED (OpenSCAD): twist preserves cross-sectional area, so the smooth wedge
 //   volume is base*h/2 = 2*2*3/2 = 6. OpenSCAD's 20-slice render is 6.106 and
 //   the discretized loft slightly overshoots (~6.4) -- faceting-class; the point
