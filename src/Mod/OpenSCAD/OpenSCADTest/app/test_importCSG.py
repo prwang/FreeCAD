@@ -153,6 +153,23 @@ class TestImportCSG(unittest.TestCase):
         self.assertAlmostEqual(roots[0].Shape.Volume, 1000.0, 6)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_intersection_empty_operand(self):
+        # Priority A: circle ∩ (empty square) is empty in OpenSCAD. A
+        # square([0,0]) has a null shape and Shape.common() raises "Null input
+        # shape", so the import aborted during parse. The result must be empty
+        # -- crucially NOT a passthrough of the circle (A n 0 = 0, not A).
+        csg = """
+intersection() {
+	circle($fn = 0, $fa = 12, $fs = 2, r = 5);
+	square(size = [0, 0], center = true);
+}
+"""
+        doc = self.utility_create_csg(csg, "intersection_empty_operand")
+        nonempty = [o for o in doc.RootObjects
+                    if hasattr(o, "Shape") and not o.Shape.isNull()]
+        self.assertEqual(nonempty, [], [o.Name for o in nonempty])
+        FreeCAD.closeDocument(doc.Name)
+
     # Regression test for the null-shape crash chain (ValueError: Null input
     # shape in fuse, minimized from a real-world model): linear_extrude over
     # offset() builds a lazy Part::Offset2D -> extrusion dependency chain,

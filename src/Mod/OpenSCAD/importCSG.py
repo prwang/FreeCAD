@@ -730,6 +730,18 @@ def p_intersection_action(p):
     'intersection_action : intersection LPAREN RPAREN OBRACE block_list EBRACE'
 
     if printverbose: print("intersection")
+    # The intersection of anything with an empty operand is empty (A n 0 = 0),
+    # and Shape.common() raises "Null input shape" on a null operand, so an
+    # empty/degenerate child (e.g. square([0,0])) used to abort the whole
+    # import. Detect null operands up front and yield an empty result.
+    checkObjShape(p[5])
+    if any(getattr(o, 'Shape', None) is not None and o.Shape.isNull()
+           for o in p[5]):
+        if printverbose: print("Intersection with empty operand -> empty")
+        for o in p[5]:
+            doc.removeObject(o.Name)
+        p[0] = []
+        return
     # Is this Multi Common
     if (len(p[5]) > 2):
         if printverbose: print("Multi Common")
@@ -745,8 +757,6 @@ def p_intersection_action(p):
         mycommon = addBoolean('Part::Common',p[1])
         mycommon.Base = p[5][0]
         mycommon.Tool = p[5][1]
-        checkObjShape(mycommon.Base)
-        checkObjShape(mycommon.Tool)
         # Eager compute belongs in this branch only: .Base/.Tool exist solely
         # here. Mirrors fuse(); the unconditional version crashed on the
         # MultiCommon / 1-child / 0-child cases (no .Base/.Tool).
