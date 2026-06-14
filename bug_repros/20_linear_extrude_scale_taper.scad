@@ -13,7 +13,7 @@
 //   connecting each base perimeter vertex to its scaled top vertex (side is a
 //   triangle where the top collapses to a point, a quad otherwise; no top cap).
 //   The pipe-shell path (twist, non-degenerate scale, curved single-vertex
-//   profiles like circle) is untouched. Commit <pending>.
+//   profiles like circle) is untouched. Commit ff880cd47a.
 // EXPECTED (OpenSCAD): a 10x10 base extruded h=10 -->
 //   scale=[0,0] pyramid  = base*h/3 = 1000/3 = 333.333
 //   scale=[0,1] wedge    = base*h/2 = 500
