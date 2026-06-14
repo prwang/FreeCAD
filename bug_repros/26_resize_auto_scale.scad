@@ -12,7 +12,7 @@
 // FIX: importCSG.py p_resize_action -> compute factor[i]=newsize[i]/old[i] for
 //   axes with newsize>0; autoscale = max of those; an auto axis with newsize 0
 //   takes autoscale; non-auto newsize<=0 and zero-extent axes stay unchanged.
-//   Commit <pending>.
+//   Commit 07d36bceee.
 // EXPECTED (OpenSCAD 2021.01, verified by STL render on cube([9,9,9])):
 //   [5,0,0]  auto[T,T,F] -> 5,5,9   = 225  (y follows x's 5/9)
 //   [5,0,20] auto[F,T,T] -> 5,20,20 = 2000 (y follows max(5/9,20/9)=20/9; z=20)
