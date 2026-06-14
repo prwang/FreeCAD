@@ -193,6 +193,34 @@ intersection() {
                                (300 + 400 + 25 * math.pi) * 2, delta=0.5)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_linear_extrude_scale_taper(self):
+        # A2#6: linear_extrude with a zero scale component tapers the top
+        # profile to a line (one zero) or a point (both zero). OpenSCADFeatures
+        # Twist.execute swept a pipe shell between the base wire and the
+        # degenerate top wire, which raised "gp_Dir() - input vector has zero
+        # norm", so the result imported as a null shape. It now builds the
+        # tapered solid by connecting base perimeter vertices to their scaled
+        # top vertices. Analytic: a 10x10 base extruded h=10 gives a pyramid
+        # (scale [0,0]) of base*h/3 = 1000/3, and a wedge (scale [0,1]) of
+        # base*h/2 = 500. Non-degenerate scale [0.5,0.5] is a frustum,
+        # h/3*(A0+A1+sqrt(A0*A1)) = 10/3*(100+25+50) = 583.333, and must be
+        # unaffected by the fix.
+        def extrude(scale):
+            return (f"linear_extrude(height = 10, center = false, convexity = 1, "
+                    f"scale = {scale}, $fn = 0, $fa = 12, $fs = 2) {{\n"
+                    f"\tsquare(size = [10, 10], center = false);\n}}\n")
+        for name, scale, expected in [
+                ("scale_taper_cone", "[0, 0]", 1000.0 / 3.0),
+                ("scale_taper_wedge", "[0, 1]", 500.0),
+                ("scale_taper_frustum", "[0.5, 0.5]", 583.3333333)]:
+            doc = self.utility_create_csg(extrude(scale), name)
+            roots = self.utility_solid_roots(doc)
+            self.assertEqual(len(roots), 1, f"{name}: {[o.Name for o in doc.RootObjects]}")
+            self.assertTrue(roots[0].Shape.isValid(), name)
+            self.assertAlmostEqual(roots[0].Shape.Volume, expected, delta=1e-3,
+                                   msg=name)
+            FreeCAD.closeDocument(doc.Name)
+
     def test_import_background_modifier(self):
         # '%' subtrees are preview-only in OpenSCAD and must not contribute
         # geometry to the imported result (nor linger in the document)

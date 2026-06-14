@@ -1,6 +1,7 @@
 # bug_repros — minimized `.scad` repros, one per fixed importCSG defect
 
-Dev-only (UNTRACKED — never `git add`). Per CLAUDE.md rule 6: each fixed defect
+Dev scaffolding, TRACKED on our fork (the `.scad` + this README; the compiled
+`out/` stays untracked). Per CLAUDE.md rule 6: each fixed defect
 gets a hand-minimized OpenSCAD source that hits the *exact* bug point and a
 header comment block (SYMPTOM / CAUSE / FIX / EXPECTED). These are our own
 record of what failed and where it was fixed — NOT the PR's regression tests
@@ -34,3 +35,4 @@ several Phase 1–3 defects (one repro per constituent defect).
 | 17 | `17_polygon_points_undef.scad` | `polygon(points=undef)` → syntax error; p_error silent | `205a619b6a` |
 | 18 | `18_fuse_extrude_null_propagation.scad` | null operand propagated through extrude/MultiFuse → null union | `024eff9443` |
 | 19 | `19_inf_nan_literals.scad` | `inf`/`nan` literals lexed as ID → statement dropped | `61d6b153f3` |
+| 20 | `20_linear_extrude_scale_taper.scad` | `linear_extrude(scale=0)` taper → null shape (pipe-shell zero-norm) | `<pending>` |

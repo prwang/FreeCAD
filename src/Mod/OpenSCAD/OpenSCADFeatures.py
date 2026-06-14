@@ -445,6 +445,24 @@ class Twist:
         if fp.Base and fp.Height and fp.Base.Shape.isValid():
             solids = []
             for lower_face in fp.Base.Shape.Faces:
+                sx, sy = float(fp.Scale[0]), float(fp.Scale[1])
+                # A2#6: a zero scale component collapses the top profile to a
+                # line (one zero) or a point (both zero). MakePipeShell then
+                # has an undefined sweep direction and raises
+                # "gp_Dir() - input vector has zero norm". With no twist and a
+                # single-wire profile, build the tapered solid analytically by
+                # connecting each base perimeter vertex to its scaled top
+                # vertex (the side becomes a triangle where the top collapses,
+                # a quad otherwise). Matches OpenSCAD: scale [0,0] -> base*h/3,
+                # scale [0,k] -> base*h/2. Holed profiles fall through to the
+                # general path below (collapsing-hole solid has no clean target).
+                if fp.Angle.Value == 0.0 and (abs(sx) < 1e-9 or abs(sy) < 1e-9) \
+                        and len(lower_face.Wires) == 1:
+                    tapered = self._taper_solid(lower_face, fp.Height.Value, sx, sy)
+                    if tapered is not None:
+                        solids.append(tapered)
+                        fp.Shape = Part.Compound(solids)
+                        continue
                 upper_face = lower_face.copy()
                 face_transform = FreeCAD.Matrix()
                 face_transform.rotateZ(math.radians(fp.Angle.Value))
@@ -489,6 +507,70 @@ class Twist:
                     solids.append(Part.Compound(faces))
                 fp.Shape=Part.Compound(solids)
 
+    @staticmethod
+    def _planar_faces(pts):
+        """Build a face from a closed point loop; fan-triangulate if the loop
+        is not planar (a non-uniformly scaled side can be skew)."""
+        import Part
+        wire = Part.makePolygon(list(pts) + [pts[0]])
+        try:
+            return [Part.Face(wire)]
+        except Part.OCCError:
+            tris = []
+            for k in range(1, len(pts) - 1):
+                try:
+                    tris.append(Part.Face(Part.makePolygon(
+                        [pts[0], pts[k], pts[k + 1], pts[0]])))
+                except Part.OCCError:
+                    pass
+            return tris
+
+    def _taper_solid(self, face, h, sx, sy):
+        """Tapered (no-twist) extrude of a single-wire profile when a scale
+        component is 0. Connects base perimeter vertices to their scaled top
+        vertices; the top cap is omitted because a zero scale degenerates it to
+        a line or point. Returns a valid solid or None to fall through."""
+        import FreeCAD
+        import Part
+        V = FreeCAD.Vector
+        try:
+            ow = face.OuterWire
+            pts = [v.Point for v in ow.OrderedVertexes]
+            if len(pts) < 3:
+                return None
+            n = len(pts)
+            bot = [V(p.x, p.y, 0.0) for p in pts]
+            top = [V(p.x * sx, p.y * sy, h) for p in pts]
+            faces = [face]  # bottom cap (the original 2D profile at z=0)
+            for i in range(n):
+                j = (i + 1) % n
+                loop = [bot[i], bot[j], top[j], top[i]]
+                clean = []
+                for q in loop:
+                    if not clean or (q - clean[-1]).Length > 1e-9:
+                        clean.append(q)
+                while len(clean) >= 2 and (clean[0] - clean[-1]).Length <= 1e-9:
+                    clean.pop()
+                if len(clean) < 3:
+                    continue
+                faces.extend(self._planar_faces(clean))
+            # top cap only if the scaled top is still a real polygon (never the
+            # case when a scale component is 0, but kept for generality)
+            tdistinct = []
+            for q in top:
+                if not any((q - r).Length < 1e-9 for r in tdistinct):
+                    tdistinct.append(q)
+            if len(tdistinct) >= 3:
+                faces.extend(self._planar_faces(top))
+            shell = Part.Shell(faces)
+            solid = Part.Solid(shell)
+            if solid.Volume < 0:
+                solid.reverse()
+            if solid.isValid() and solid.Volume > 1e-9:
+                return solid
+        except Part.OCCError:
+            return None
+        return None
 
 
 class PrismaticToroid:
