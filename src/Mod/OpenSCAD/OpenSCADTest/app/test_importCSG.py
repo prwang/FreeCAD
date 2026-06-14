@@ -214,6 +214,29 @@ multmatrix([[2, 0, 0, 0], [0, 2, 0, 0], [0, 0, 2, 0], [0, 0, 0, 1]]) {
         self.assertAlmostEqual(roots[0].Shape.Volume, 8000.0, delta=1e-3)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_resize_no_source_leak(self):
+        # A4: p_resize_action bakes the resized shape into a new
+        # Part::FeaturePython ("Matrix Deformation") via transformGeometry but
+        # used to only ViewObject.hide() the source child, and only under gui.
+        # Headless it left the un-resized source as a stray orphan document root,
+        # so the source and the resized result both survived and the summed
+        # solids double-counted (corpus resize-tests blew up by ~1e9 % when the
+        # source had a huge extent). Same orphan-leak class as the multmatrix
+        # fix. resize([4,0,0]) of a 2x2x2 cube scales X 2->4 and leaves Y,Z at 2
+        # (OpenSCAD: a 0 newsize component means "leave that axis unchanged"),
+        # so the result is ONE solid of volume 4*2*2 = 16 with no leftover
+        # 8-unit raw cube.
+        csg = """
+resize(newsize = [4, 0, 0], auto = [0, 0, 0], convexity = 0) {
+	cube(size = [2, 2, 2], center = false);
+}
+"""
+        doc = self.utility_create_csg(csg, "resize_source_leak")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1, [o.Name for o in doc.RootObjects])
+        self.assertAlmostEqual(roots[0].Shape.Volume, 16.0, delta=1e-3)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_projection_cut_false_no_plane_leak(self):
         # A3#9: p_projection_action built the helper "xy_plane_used_for_projection"
         # Part::Plane unconditionally, but only the cut=true branch consumes it

@@ -546,7 +546,17 @@ def p_resize_action(p):
             ViewProviderTree(new_part.ViewObject)
         else:
             new_part.ViewObject.Proxy = 0
-        p[6][0].ViewObject.hide()
+    # transformGeometry bakes a copy of the resized shape into new_part; nothing
+    # references the source p[6][0] afterwards. Drop it and its subtree, otherwise
+    # the un-resized source is left as a stray orphan document root and appears
+    # alongside the resized result (the summed solids then double-count -- e.g.
+    # resize([4,0,0]) cube([2,2,2]) leaks the raw 8-unit cube next to the correct
+    # 16-unit result). Same orphan-leak class as the multmatrix fix (ac08e5e2c5).
+    for obj in p[6][0].OutListRecursive + [p[6][0]]:
+        try:
+            doc.removeObject(obj.Name)
+        except Exception:
+            pass
     p[0] = [new_part]
 
 
