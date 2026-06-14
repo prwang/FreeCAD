@@ -553,6 +553,24 @@ polyhedron(
         self.assertAlmostEqual (object.Shape.Volume, 4.5*math.pi, 5)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_rotate_extrude_childless(self):
+        # Priority A: OpenSCAD compiles a childless rotate_extrude(...) to the
+        # semicolon form with no 'file' kwarg. It revolves nothing and renders
+        # empty. The importer assumed a 'file' kwarg, so p[3]['file'] raised
+        # KeyError and aborted the whole import. The surrounding cube must still
+        # come through, and the empty rotate_extrude must add no geometry.
+        csg = """
+union() {
+	cube(size = [10, 10, 10], center = false);
+	rotate_extrude(angle = 360, convexity = 2, $fn = 0, $fa = 12, $fs = 2);
+}
+"""
+        doc = self.utility_create_csg(csg, "rotate_extrude_childless")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 1000.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_linear_extrude(self):
         doc = self.utility_create_scad("linear_extrude(height = 20) square([20, 10], center = true);", "linear_extrude_simple")
         object = doc.ActiveObject

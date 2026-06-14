@@ -825,7 +825,16 @@ def p_rotate_extrude_file(p):
     angle = 360.0
     if 'angle' in p[3]:
         angle = float(p[3]['angle'])
-    filen,ext = p[3]['file'] .rsplit('.',1)
+    # OpenSCAD compiles both a childless rotate_extrude(...); and a
+    # rotate_extrude that imports an external profile to this semicolon form.
+    # Without a 'file' kwarg there is no profile and nothing to revolve, so it
+    # renders empty (matching offset();). Previously p[3]['file'] raised
+    # KeyError and aborted the whole import.
+    if 'file' not in p[3]:
+        if printverbose: print("Childless rotate_extrude -> empty result")
+        p[0] = []
+        return
+    filen,ext = (p[3]['file'].rsplit('.',1) + [''])[:2]
     obj = process_import_file(filen,ext,p[3]['layer'])
     n = int(round(float(p[3]['$fn'])))
     fnmax = FreeCAD.ParamGet(\
