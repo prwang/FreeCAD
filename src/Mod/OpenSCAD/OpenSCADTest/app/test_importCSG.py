@@ -193,6 +193,27 @@ intersection() {
                                (300 + 400 + 25 * math.pi) * 2, delta=0.5)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_multmatrix_scale_no_source_leak(self):
+        # A3#8 (surfaced via polyhedron-nonplanar-tests): a non-rigid
+        # (scaling/shear) multmatrix takes the transformGeometry path in
+        # p_multmatrix_action, which bakes the transformed shape into a new
+        # Part::Feature but used to leave the untransformed source object as a
+        # stray orphan document root -- so a scaled solid appeared twice (once
+        # raw, once scaled), e.g. a polyhedron under a 0.02 scale leaked its
+        # 206803-unit raw copy alongside the 1.65-unit scaled result.
+        # A uniform scale 2 of a 10x10x10 cube must give ONE solid of volume
+        # 8000 (10^3 * 2^3) and no leftover 1000-unit raw cube.
+        csg = """
+multmatrix([[2, 0, 0, 0], [0, 2, 0, 0], [0, 0, 2, 0], [0, 0, 0, 1]]) {
+	cube(size = [10, 10, 10], center = false);
+}
+"""
+        doc = self.utility_create_csg(csg, "multmatrix_scale_cube")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1, [o.Name for o in doc.RootObjects])
+        self.assertAlmostEqual(roots[0].Shape.Volume, 8000.0, delta=1e-3)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_projection_cut_false_no_plane_leak(self):
         # A3#9: p_projection_action built the helper "xy_plane_used_for_projection"
         # Part::Plane unconditionally, but only the cut=true branch consumes it

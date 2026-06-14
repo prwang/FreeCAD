@@ -1166,8 +1166,17 @@ def p_multmatrix_action(p):
             doc.recompute()
         new_part = doc.addObject("Part::Feature","Matrix Deformation")
         new_part.Shape = part.Shape.transformGeometry(transform_matrix)
-        if gui:
-            part.ViewObject.hide()
+        # transformGeometry bakes a copy of the transformed shape into
+        # new_part; unlike the rigid (Placement) and MatrixTransform (obj.Base
+        # link) paths, nothing references the source `part` afterwards. Drop it
+        # and its now-redundant subtree, otherwise a non-rigid (scaling/shear)
+        # multmatrix leaves the untransformed source as a stray orphan document
+        # root -- e.g. a scaled polyhedron then appears twice (raw + scaled).
+        for obj in part.OutListRecursive + [part]:
+            try:
+                doc.removeObject(obj.Name)
+            except Exception:
+                pass
     if False :
 #   Does not fix problemfile or beltTighener although later is closer
         newobj=doc.addObject("Part::FeaturePython",'RefineMultMatrix')

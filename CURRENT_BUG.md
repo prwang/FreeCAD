@@ -1,49 +1,52 @@
-# CURRENT BUG — A3#9 projection()
+# CURRENT BUG — A3#8 polyhedron (resolved to: non-rigid multmatrix orphan leak)
 
 ## Observation
-- Family: t2d__projection-cut-tests, t2d__projection-tests, ex__projection.
-- The plan flagged "projection-cut ~32 % off / projection-tests 38 %".
-- Repro probes (analytic):
-  - cut=true, centered cube → slice z=0 = 10×10, **area 100.0000** (exact).
-  - cut=true, sphere r=10 $fn=64 → equator circle, **area 314.1497**
-    (vs 100π=314.159, 0.003 % = $fn faceting).
-  - cut=true, 2D square([10,10]) → **area 100.0000** (coplanar, exact).
-  - cut=true, cube translated to z=5 (slice misses it) → **area 0** (exact).
-  - cut=false, centered cube → **2 roots**: a stray
-    `xy_plane_used_for_projection` (Plane, **area 100**) + an empty
-    `projection` placeholder.
+- Family: t3d__polyhedron-* (plan flagged "polyhedron-tests 50 % / nonplanar
+  7e6 %").
+- Probes over the whole corpus polyhedron set:
+  - polyhedron-cube → vol 1.0 (unit cube) ✓
+  - polyhedron-concave → vol 340.0 (= hexagon area 68 × h 5) ✓
+  - polyhedron-soup (triangle soup, duplicated vertices, octahedron) → 4/3 ✓
+  - polyhedron-tests (octahedra incl. inconsistent winding) → all valid ✓
+  - polyhedron-nonplanar-tests → total **206806** vs OpenSCAD ref **2.943**.
+- Decomposing nonplanar-tests by root:
+  - root0 polyhedron (near-unit-cube, slightly non-planar) = 1.0 (== OpenSCAD)
+  - root1 polyhedron001 (giant 120-pt spiky, RAW/untransformed) = **206803**
+  - root2 Matrix_Deformation (the giant after its 0.02 scale) = **1.654**
+  - root3 polyhedron002 = 0.289
+  - OpenSCAD ref total 2.943 = 1.0 + 1.654 + 0.289 (root1 is spurious).
 
 ## Hypotheses (each independently testable)
-- H1: cut=true is broken (the "32 %" is a real importer error in the slice).
-- H2: the "32 %"/"38 %" was $fn faceting and/or a missing companion file
-  (`projection.stl` in ex__projection), not an importCSG geometry defect, and
-  cut=true is actually correct.
-- H3: cut=false leaks the helper plane `xy_plane_used_for_projection` as an
-  orphan document root because the plane is created unconditionally
-  (importCSG.py p_projection_action lines ~1593-1599) but only consumed
-  (added to `obj.Shapes`) in the cut=true branch.
-- H4: true projection (cut=false shadow/silhouette) is missing geometry — but
-  it is an explicit `usePlaceholderForUnsupported` placeholder by design, and
-  the silhouette has no clean analytic/OCC target.
+- H1: polyhedron face building (makeFilledFace on non-planar faces, or
+  winding) is wrong → bad geometry.
+- H2: the giant's TRANSFORMED result is wrong (makeFilledFace bulge).
+- H3: a non-rigid (scaling/shear) multmatrix leaves its untransformed source
+  `part` as an orphan document root, so the giant polyhedron appears twice:
+  once raw (206803) and once correctly scaled (1.654).
 
 ## Evidence log
-- cut=true probes above are all exact (100, 100, 0) or faceting-only (sphere).
-  → **H1 REJECTED, H2 ACCEPTED** (cut=true is correct; residual error was
-  faceting / the missing `projection.stl` companion, not importCSG).
-- cut=false probe shows roots=2 incl. `xy_plane_used_for_projection` area 100.
-  In the cut=true probe roots=1 (the plane is a child of MultiCommon, not a
-  root). `placeholder()` wraps the children, so the children are consumed; only
-  the plane leaks. → **H3 ACCEPTED**.
-- True projection: no OCC primitive; OpenSCAD unions all cross-sections. No
-  clean analytic target; existing design intentionally emits a placeholder.
-  → **H4: out of minimal scope — leave the placeholder; UNKNOWN/postponed.**
+- cube/concave/soup/tests/octahedra all match analytic targets, incl. the
+  inconsistent-winding octahedron (Part.makeShell sews by shared geometry, so
+  winding is tolerated). → **H1 REJECTED**.
+- root2 Matrix_Deformation = 1.654 == (OpenSCAD ref 2.943 − 1.0 − 0.289). The
+  transformed giant is correct. → **H2 REJECTED**.
+- InList probe: root1 polyhedron001 has InList=0 (parentless ROOT), and
+  Matrix_Deformation is a plain Part::Feature (path 4, transformGeometry), NOT
+  a FeaturePython linking the source. p_multmatrix_action path 4 (importCSG.py
+  ~1162-1170, the `useMultmatrixFeature`==False branch, which is the headless
+  default) bakes `part.Shape.transformGeometry(M)` into a new Part::Feature but
+  never consumes `part`; paths 1 (rigid) and 3 (MatrixTransform `obj.Base`
+  link) keep the source non-root. → **H3 ACCEPTED**.
+- Dev corpus uses only rotation multmatrices (orthogonal → path 1), so it never
+  hit this leak — hence 35/35 MATCH despite the bug; the fix won't regress it.
 
 ## Verdict
-- **H3 ACCEPTED** (and H2). H1 REJECTED. H4 honestly postponed.
-- Fix: build the `xy_plane_used_for_projection` plane (and the bbox work that
-  only sizes it) **inside the cut=true branch**, so the cut=false path no
-  longer leaks a stray plane root. cut=true geometry is unchanged; true
-  projection stays a placeholder.
-- Analytic expected: `projection(cut=false) cube(...)` imports with **no**
-  `xy_plane_used_for_projection` root (only the empty placeholder); cut=true
-  slice areas unchanged (cube=100, empty-slice=0).
+- **H3 ACCEPTED**; H1, H2 REJECTED. The polyhedron builder is correct; the
+  defect is the multmatrix transformGeometry path leaking its untransformed
+  source as a stray orphan root under any non-rigid (scaling/shear) matrix.
+- Fix: in p_multmatrix_action path 4, after baking the transformed shape into
+  `new_part`, remove the now-redundant `part` and its subtree from the
+  document (its geometry is fully copied into new_part; it is referenced by
+  nothing).
+- Analytic expected: `multmatrix(scale 2) cube(10)` → exactly ONE root,
+  vol 8000 (10³·2³), with no leftover raw 1000 cube.
