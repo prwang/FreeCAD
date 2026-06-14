@@ -106,20 +106,26 @@ python3 $HARNESS/validate.py --tests csg_tests caseF.scad
 Always run `run_all.py` before `validate.py` (same `--out`): validation
 reads `csg_out/summary.json` to know which results are 2D (see below).
 
+Both runners cap each child process at 4 GB of address space (`--mem-gb`,
+Linux/macOS; 0 disables). Without the cap a single hungry case — typically
+an openscad CGAL reference render of a minkowski-heavy model — can OOM the
+whole machine. Capped-out cases are discarded: conversions get
+`stage=oom`, reference renders get `NO-REF`.
+
 ## Components
 
 | file | role |
 |---|---|
 | `csg2step.py` | runs under `FreeCADCmd`; env `CSG2STEP_IN`/`CSG2STEP_OUT`. Sets OpenSCAD prefs headlessly, `importCSG.open()`, sanity-checks every root shape, exports STEP + STL, emits one JSON record between `CSG2STEP_RESULT_BEGIN/END` markers. |
-| `run_all.py` | drives the corpus, one subprocess per file (crash/hang isolation, per-file `--timeout`); writes `csg_out/summary.json` + per-case `.log`. |
-| `validate.py` | pure python, no FreeCAD; renders `<name>.ref.stl` with openscad (cached by mtime), compares volume (divergence theorem) and bbox of both STLs. Thresholds: `--vol-tol` 2 %, `--bbox-tol` 0.1 mm. Writes `csg_out/validation.json`. |
+| `run_all.py` | drives the corpus, one subprocess per file (crash/hang isolation, per-file `--timeout`, `--mem-gb` address-space cap); writes `csg_out/summary.json` + per-case `.log`. |
+| `validate.py` | pure python, no FreeCAD; renders `<name>.ref.stl` with openscad (cached by mtime, `--mem-gb` capped), compares volume (divergence theorem) and bbox of both STLs. Thresholds: `--vol-tol` 2 %, `--bbox-tol` 0.1 mm. Writes `csg_out/validation.json`. |
 | `trace_null.py` | diagnostic: monkeypatches `importCSG.checkObjShape`/`fuse` to localize null/invalid shapes while the tree is built; dumps root/invalid object stats after the parse. |
 | `minimize.py` | diagnostic: brace-aware `.csg` subtree splitter for bisecting a failing case down to a minimal repro (see workflow below). |
 
 ### Result records
 
 `summary.json` (per case, `result` field): `stage` ∈ `parse | recompute |
-empty-result | invalid-shape | export | ok | crash | timeout`; `ok` ∈
+empty-result | invalid-shape | export | ok | crash | timeout | oom`; `ok` ∈
 `true | "suspect" | false` (suspect = exported but some shape invalid);
 per-root `{label, type, isNull, isValid, solids, faces, volume}`;
 `leaked_2d_roots` (importer left consumed 2D intermediates as roots);

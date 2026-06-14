@@ -9,7 +9,11 @@ For each <name>.csg:
 Pure python (no FreeCAD). Writes csg_out/validation.json and prints a table.
 
 Usage: python3 validate.py [--tests DIR] [--out DIR] [--timeout S]
-                           [--vol-tol PCT] [--bbox-tol MM] [names...]
+                           [--mem-gb GB] [--vol-tol PCT] [--bbox-tol MM] [names...]
+
+Reference renders run under an address-space cap (default 4 GB, Linux/macOS):
+CGAL renders (e.g. minkowski) can otherwise OOM the whole machine. A case
+whose reference needs more is discarded (NO-REF).
 """
 
 import argparse
@@ -20,7 +24,24 @@ import struct
 import subprocess
 import sys
 
+try:
+    import resource
+except ImportError:  # Windows: no rlimits; renders run uncapped
+    resource = None
+
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def mem_limiter(mem_gb):
+    """Return a subprocess preexec_fn capping the child's address space, or
+    None where rlimits are unavailable (Windows)."""
+    if not resource or not mem_gb:
+        return None
+    limit = int(mem_gb * (1 << 30))
+
+    def _limit():
+        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+    return _limit
 
 
 def find_openscad():
@@ -116,13 +137,18 @@ def wrap_2d(csg, out, name):
     return path
 
 
-def render_reference(openscad, csg, ref_stl, timeout):
+def render_reference(openscad, csg, ref_stl, timeout, mem_gb):
     if os.path.isfile(ref_stl) and os.path.getmtime(ref_stl) > os.path.getmtime(csg):
         return None  # cached
     p = subprocess.run([openscad, "-o", ref_stl, csg],
-                       capture_output=True, text=True, timeout=timeout)
+                       capture_output=True, text=True, timeout=timeout,
+                       preexec_fn=mem_limiter(mem_gb))
     if p.returncode != 0 or not os.path.isfile(ref_stl):
-        return "openscad failed: " + (p.stderr or "").strip()[-200:]
+        err = (p.stderr or "").strip()
+        if p.returncode and p.returncode < 0 or "bad_alloc" in err \
+                or "Cannot allocate" in err:
+            return "openscad killed (likely > %sGB memory cap), discarded" % mem_gb
+        return "openscad failed: " + err[-200:]
     return None
 
 
@@ -134,6 +160,9 @@ def main():
     ap.add_argument("--openscad", default=None,
                     help="openscad binary for reference renders (default: auto-detect)")
     ap.add_argument("--timeout", type=int, default=180)
+    ap.add_argument("--mem-gb", type=float, default=4.0,
+                    help="reference-render address-space cap in GB; 0 = uncapped "
+                         "(default 4: hungrier cases are discarded)")
     ap.add_argument("--vol-tol", type=float, default=2.0,
                     help="max |dV|/Vref in percent")
     ap.add_argument("--bbox-tol", type=float, default=0.1,
@@ -170,7 +199,8 @@ def main():
         fc = os.path.join(args.out, name + ".stl")
         rec = {"name": name}
         try:
-            err = render_reference(args.openscad, csg, ref, args.timeout)
+            err = render_reference(args.openscad, csg, ref, args.timeout,
+                                   args.mem_gb)
         except subprocess.TimeoutExpired:
             err = "openscad timeout"
         if err:
