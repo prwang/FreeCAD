@@ -237,6 +237,25 @@ resize(newsize = [4, 0, 0], auto = [0, 0, 0], convexity = 0) {
         self.assertAlmostEqual(roots[0].Shape.Volume, 16.0, delta=1e-3)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_resize_negative_newsize(self):
+        # A6: OpenSCAD leaves an axis unchanged when its target newsize is <= 0
+        # (a 0 means "don't resize this axis"; a negative is likewise ignored,
+        # NOT a mirror -- resize([-5,0,0]) cube(1) renders as the unit cube).
+        # p_resize_action guarded only the exact string '0', so a negative value
+        # ('-5') slipped through to factor -5 and produced a mirrored/scaled
+        # solid of volume 5. With the numeric <= 0 guard, X is left unchanged
+        # and the cube stays a unit cube of volume 1.
+        csg = """
+resize(newsize = [-5, 0, 0], auto = [0, 0, 0], convexity = 0) {
+	cube(size = [1, 1, 1], center = false);
+}
+"""
+        doc = self.utility_create_csg(csg, "resize_negative_newsize")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1, [o.Name for o in doc.RootObjects])
+        self.assertAlmostEqual(roots[0].Shape.Volume, 1.0, delta=1e-3)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_projection_cut_false_no_plane_leak(self):
         # A3#9: p_projection_action built the helper "xy_plane_used_for_projection"
         # Part::Plane unconditionally, but only the cut=true branch consumes it

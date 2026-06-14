@@ -521,7 +521,13 @@ def p_resize_action(p):
     for r in range(0,3):
         if auto[r] == '1':
             new_size[r] = new_size[0]
-        if new_size[r] == '0':
+        # OpenSCAD leaves an axis unchanged when its target newsize is <= 0 (a 0
+        # means "don't resize this axis"; a negative is likewise ignored, NOT a
+        # mirror -- resize([-5,0,0]) cube(1) renders as the unit cube, vol 1).
+        # The old guard was an exact string compare `== '0'`, so a negative value
+        # (formatted e.g. '-5') slipped through to factor -5 and produced a
+        # mirrored/scaled solid (vol 5). Use a numeric <= 0 test instead.
+        if float(new_size[r]) <= 0:
             new_size[r] = str(old_size[r])
 
     # Calculate a transform matrix from the current bounding box to the new one.

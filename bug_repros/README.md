@@ -40,3 +40,4 @@ several Phase 1–3 defects (one repro per constituent defect).
 | 22 | `22_multmatrix_scale_source_leak.scad` | non-rigid `multmatrix` leaked untransformed source as orphan root | `ac08e5e2c5` |
 | 23 | `23_resize_source_leak.scad` | `resize()` leaked un-resized source child as orphan root (double-count) | `b8a90c6d93` |
 | 24 | `24_linear_extrude_twist_scale_zero.scad` | `linear_extrude(twist, scale=[0,0])` point-collapse → null (gp_Dir zero norm) | `8e36697899` |
+| 25 | `25_resize_negative_newsize.scad` | `resize()` negative newsize scaled by negative ratio (mirror) instead of unchanged | `<pending>` |
