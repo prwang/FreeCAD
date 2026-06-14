@@ -10,7 +10,7 @@
 // FIX: importCSG.py p_projection_action -> build the plane + bbox inside the
 //   cut=true branch only. cut=true geometry is unchanged; cut=false no longer
 //   leaks a plane. True shadow projection stays a placeholder (no clean OCC /
-//   analytic target -- honestly out of scope). Commit <pending>.
+//   analytic target -- honestly out of scope). Commit 3ba221ab68.
 // EXPECTED (OpenSCAD): projection(cut=true) of a centered cube is the 10x10
 //   mid-section (area 100); projection(cut=false) is the silhouette. Either way
 //   the importer must NOT emit a stray xy_plane_used_for_projection root.
