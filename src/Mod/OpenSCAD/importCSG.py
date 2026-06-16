@@ -902,7 +902,18 @@ def p_rotate_extrude_file(p):
         p[0] = []
         return
     filen,ext = (p[3]['file'].rsplit('.',1) + [''])[:2]
-    obj = process_import_file(filen,ext,p[3]['layer'])
+    # The file= form is OpenSCAD's deprecated 2D-profile import; an unopenable or
+    # unsupported file (e.g. file="45", no extension/no such file) warns and
+    # renders empty in OpenSCAD -- it must NOT abort the whole document and lose
+    # the other statements. Mirror import()-of-a-missing-file: empty + warn.
+    try:
+        obj = process_import_file(filen,ext,p[3]['layer'])
+    except (ValueError, FileNotFoundError) as e:
+        FreeCAD.Console.PrintWarning(
+            "rotate_extrude(file=%r): %s; rendering empty\n"
+            % (p[3]['file'], e))
+        p[0] = []
+        return
     n = int(round(float(p[3]['$fn'])))
     fnmax = FreeCAD.ParamGet(\
         "User parameter:BaseApp/Preferences/Mod/OpenSCAD").\

@@ -586,6 +586,23 @@ cube(size = [3, 3, 3], center = false);
         self.assertAlmostEqual(roots[0].Shape.Volume, 27.0, 6)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_rotate_extrude_unopenable_file_is_empty(self):
+        # Category C (t3d__rotate_extrude-angle): the deprecated
+        # rotate_extrude(file="...") 2D-profile import form. file="45" has no
+        # extension/no such file -> process_import_file raised ValueError
+        # "Unsupported file extension", aborting the whole import. OpenSCAD warns
+        # and renders an unopenable file as empty; the sibling cube (vol 27)
+        # must survive.
+        csg = """
+rotate_extrude(file = "45", layer = "", angle = 360, $fn = 0, $fa = 15, $fs = 4);
+cube(size = [3, 3, 3], center = false);
+"""
+        doc = self.utility_create_csg(csg, "rotate_extrude_bad_file")
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 27.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_circle_not_leaked(self):
         # p_circle_action used to create the 'circle' object and then shadow
         # it with a second Draft.makeCircle object, orphaning the first as an
