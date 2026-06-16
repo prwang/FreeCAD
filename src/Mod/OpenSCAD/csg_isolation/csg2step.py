@@ -1,24 +1,103 @@
 """Headless OpenSCAD .csg -> STEP conversion driver.
 
-Run with:  FreeCADCmd csg2step.py <input.csg> <output.step>
+Paths come via the environment (FreeCADCmd treats positional args as documents
+to open, so they cannot be script arguments):
+  CSG2STEP_IN   input .csg          CSG2STEP_OUT   output .step
+  CSG2STEP_OPENSCAD  openscad bin (optional, only for text()/external imports)
+  CSG2STEP_HUMAN     set -> print a friendly human summary instead of the JSON
+                     marker, and skip the validation-only STL sidecar.
 
-Prints a single JSON object (between CSG2STEP_RESULT markers) describing the
-outcome, including the stage at which a failure occurred:
+Default (machine) mode prints a single JSON object between CSG2STEP_RESULT
+markers describing the outcome, including the stage at which a failure occurred:
   parse | recompute | empty-result | invalid-shape | export | ok
+This is the contract run_all.py parses; do not change it. The end-user entry
+point is the csg2step.sh wrapper, which runs this in CSG2STEP_HUMAN mode.
 """
 
 import json
 import os
+import re
 import sys
 import time
 import traceback
 
 
-def emit(result):
+def friendly_message(error, tb):
+    """Classify a failure as ('unsupported', msg) [an xfail: not an importer
+    bug, just a feature this headless path cannot serve] or ('error', None)
+    [a genuine conversion defect]. Matches the known environmental signatures
+    surfaced by the corpus sweep."""
+    blob = (error or "") + "\n" + (tb or "")
+    if "readDXF" in blob:
+        return ("unsupported",
+                "this model uses text() or an imported DXF, which needs "
+                "FreeCAD's Draft module (not available in this headless build)")
+    if "No such file or directory" in blob or "File does not exist" in blob:
+        m = re.search(r"No such file or directory: '([^']+)'", blob)
+        what = " ('%s')" % m.group(1) if m else ""
+        return ("unsupported",
+                "this model imports an external file%s (import()/surface()/"
+                "include) that was not found next to the .csg" % what)
+    return ("error", None)
+
+
+def _classify(result):
+    if result.get("category") is not None:
+        return
+    ok = result.get("ok")
+    if ok is True:
+        result["category"] = "ok"
+    elif ok == "suspect":
+        result["category"] = "suspect"
+    else:
+        cat, msg = friendly_message(result.get("error"), result.get("traceback"))
+        result["category"] = cat
+        if msg:
+            result["message"] = msg
+
+
+def _emit_json(result):
     sys.stdout.write("\nCSG2STEP_RESULT_BEGIN\n")
     sys.stdout.write(json.dumps(result, indent=1))
     sys.stdout.write("\nCSG2STEP_RESULT_END\n")
     sys.stdout.flush()
+
+
+def _emit_human(result):
+    cat = result["category"]
+    lines = []
+    if cat in ("ok", "suspect"):
+        roots = result.get("roots", [])
+        nsol = sum(r.get("solids", 0) for r in roots)
+        vol = sum((r.get("volume") or 0) for r in roots)
+        what = "%s  (%d solid%s, volume %.4g)" % (
+            result["output"], nsol, "" if nsol == 1 else "s", vol)
+        if cat == "suspect":
+            lines.append("! wrote %s" % what)
+            lines.append("  warning: some shapes are geometrically invalid: %s"
+                         % result.get("error"))
+        else:
+            lines.append("OK wrote %s" % what)
+    elif cat == "unsupported":
+        lines.append("SKIP %s" % result["input"])
+        lines.append("  unsupported: %s" % result.get("message"))
+    else:
+        lines.append("FAIL %s" % result["input"])
+        lines.append("  conversion failed at stage '%s': %s"
+                     % (result.get("stage"), result.get("error")))
+    sys.stdout.write("\nCSG2STEP_HUMAN_BEGIN\n")
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.write("CSG2STEP_HUMAN_END\n")
+    sys.stdout.write("CSG2STEP_STATUS=%s\n" % cat)
+    sys.stdout.flush()
+
+
+def emit(result):
+    _classify(result)
+    if os.environ.get("CSG2STEP_HUMAN"):
+        _emit_human(result)
+    else:
+        _emit_json(result)
 
 
 def configure_params():
@@ -138,24 +217,29 @@ def main():
     result["timings"]["export"] = round(time.time() - t0, 3)
 
     # tessellated copy of the same result, for volume/visual comparison
-    # against an openscad-rendered reference STL
+    # against an openscad-rendered reference STL. Pure validation scaffolding:
+    # skip it for end users (CSG2STEP_HUMAN) -- they only want the STEP, and
+    # the OCC threaded STL mesher is where the few mesh-only segfaults live.
     stl_out = os.path.splitext(outfile)[0] + ".stl"
-    try:
-        import Mesh
-        if result["twoD"]:
-            # 2D result: mesh a 1mm extrusion; validate.py renders the
-            # openscad reference through the same linear_extrude wrapper
-            import Part
-            ext = doc.addObject("Part::Feature", "__stl_2d_extrude")
-            ext.Shape = Part.makeCompound(
-                [o.Shape.extrude(FreeCAD.Vector(0, 0, 1)) for o in exportable])
-            Mesh.export([ext], stl_out)
-        else:
-            Mesh.export(exportable, stl_out)
-        result["stl"] = stl_out
-    except BaseException as e:
+    if os.environ.get("CSG2STEP_HUMAN"):
         result["stl"] = None
-        result["stl_error"] = "%s: %s" % (type(e).__name__, e)
+    else:
+        try:
+            import Mesh
+            if result["twoD"]:
+                # 2D result: mesh a 1mm extrusion; validate.py renders the
+                # openscad reference through the same linear_extrude wrapper
+                import Part
+                ext = doc.addObject("Part::Feature", "__stl_2d_extrude")
+                ext.Shape = Part.makeCompound(
+                    [o.Shape.extrude(FreeCAD.Vector(0, 0, 1)) for o in exportable])
+                Mesh.export([ext], stl_out)
+            else:
+                Mesh.export(exportable, stl_out)
+            result["stl"] = stl_out
+        except BaseException as e:
+            result["stl"] = None
+            result["stl_error"] = "%s: %s" % (type(e).__name__, e)
 
     if not os.path.isfile(outfile) or os.path.getsize(outfile) == 0:
         result["error"] = "export produced no file"
