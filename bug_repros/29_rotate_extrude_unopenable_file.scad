@@ -11,7 +11,7 @@
 // FIX: importCSG.py p_rotate_extrude_file -> wrap process_import_file in
 //   try/except (ValueError, FileNotFoundError): warn and render empty, mirroring
 //   import()-of-a-missing-file and the childless-rotate_extrude path right above.
-//   Commit <C1-HASH>.
+//   Commit 65223cb91b.
 // EXPECTED (OpenSCAD): rotate_extrude with an unopenable file warns and renders
 //   empty; it does not abort the model. Sibling geometry (here cube([3,3,3]),
 //   volume 27) is unaffected.

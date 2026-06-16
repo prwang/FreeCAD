@@ -16,7 +16,7 @@
 //   repair both operands and retry, baking the result into a static
 //   Part::Feature (and consuming the two child subtrees) so the final recompute
 //   does not re-run the failing parametric boolean. If the retry still fails the
-//   original error propagates (no masking of unrelated bugs). Commit <C5-HASH>.
+//   original error propagates (no masking of unrelated bugs). Commit 1af659d485.
 // EXPECTED (OpenSCAD): the union renders as one valid 2D region. After the fix
 //   the "Unorientable" crash is gone; ex__module_recursion no longer aborts at
 //   parse. (It is also a very heavy model -- 2047 nested booleans -- so it may

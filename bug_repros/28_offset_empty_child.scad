@@ -10,7 +10,7 @@
 // FIX: importCSG.py p_offset_action -> add a `subobj.Shape.isNull()` guard
 //   BEFORE the .Volume test: consume the subtree and render empty (offsetting an
 //   empty region yields nothing), matching the childless and 3D-child paths.
-//   Commit <C2-HASH>.
+//   Commit 39eebb0263.
 // EXPECTED (OpenSCAD): offset() of an empty 2D region is empty; it does not abort
 //   the model. Sibling geometry (here cube([3,3,3]), volume 27) is unaffected.
 offset(r = 1)

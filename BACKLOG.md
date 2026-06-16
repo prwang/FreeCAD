@@ -418,3 +418,41 @@ than C — the user gets a file, just geometrically suspect). Easiest first:
 15. `t2d__projection-cut-tests` / 16. `t3d__colored-nodes` (minkowski) — *(hard)*
 17. `t3d__hull3-tests` (hull) — *(hard)*
 18. `gridfin__gridfinity-spiral-vase` (difference012) — complex real-world model. *(hard)*
+
+---
+
+## Category C — easiest 5 RESOLVED (2026-06-16)
+
+Worked the 5 easiest Category-C cases under the CURRENT_BUG.md discipline. Goal:
+xfail-with-reason OR real output (→ Category D), no regression. Gates after the
+batch: unit suite **64/64 OK**; dev corpus **35/35 convert + (validate) MATCH**.
+
+| # | case | was | now | commit |
+|---|---|---|---|---|
+| C1 | `t3d__rotate_extrude-angle` | FAIL@parse `ValueError: Unsupported file extension` | exports, 73 obj (suspect) → **Cat D** | `65223cb91b` |
+| C2 | `t2d__offset-tests` | FAIL@parse `RuntimeError: shape is invalid` | exports, 97 obj (suspect) → **Cat D** | `39eebb0263` |
+| C3 | `roundany__shell2d` | FAIL@empty-result (hard error) | friendly **EMPTY** (exit 3) | `42bd59a2f5` |
+| C4 | `roundany__polyround` | FAIL@empty-result (hard error) | friendly **EMPTY** (exit 3) | `42bd59a2f5` |
+| C5 | `ex__module_recursion` | FAIL@parse `CADKernelError: Unorientable shape` (crash) | crash fixed → **Priority-C timeout** (heavy 2047-boolean model) | `1af659d485` |
+
+- **C1** `p_rotate_extrude_file`: the deprecated `file=` (2D-profile import) form
+  with an unopenable file now renders empty + warns (mirrors import-of-missing
+  and the childless path), instead of aborting the whole document. Repro 29.
+- **C2** `p_offset_action`: a null/degenerate operand (`square([0,0])`) is now
+  guarded before `.Volume` → offset-of-empty renders empty (consumed), instead
+  of `RuntimeError: shape is invalid` aborting. Repro 28.
+- **C3/C4**: NOT importer bugs — both models genuinely evaluate to empty (empty
+  extrude body; `polygon(undef)`), exactly as OpenSCAD renders them. The fix is
+  in the driver: a clean run with no shaped roots is classified `empty` (its own
+  friendly category, exit 3), not a hard error. Importer regression guards
+  assert the correct empty output. No `.scad` repro (no importer defect).
+- **C5** `fuse` single-fuse path: one node's tool operand was an invalid
+  multi-wire 2D face (accumulated from a long chain of overlapping-rectangle
+  unions; OCC "Unorientable"). New `repair2DFaces` (ShapeFix on a mutable copy,
+  holes-preserving; outer-wire fallback) + a try/except that repairs operands
+  and retries, baking the result into a static `Part::Feature`. The crash is
+  gone; `ex__module_recursion` is also genuinely heavy (2× recompute over 2047
+  nested booleans → > 540 s), so it now lands as an honest **Priority-C timeout**
+  rather than a crash. Unit test `test_repair_invalid_2d_face_for_fuse`
+  (deterministic synthetic invalid hole-face; the emergent canopy face has no
+  minimal `.scad` form). Repro 30.
