@@ -10,8 +10,10 @@ later PR-writing stage will produce the upstream-facing docs/tests and strip the
 dev scaffolding, *guided by* these self-docs and repros. So during development we
 **track** our own working docs on `fix-csg` (commit them, so a later fix that
 regresses an earlier one has a place to be checked against):
-- TRACK: `CLAUDE.md`, `CURRENT_BUG.md`, `bug_repros/` (the `.scad` + `README.md`;
-  NOT the regenerable compiled `bug_repros/out/`).
+- TRACK: `CLAUDE.md`, `CURRENT_BUG.md`, `BACKLOG.md` (the in-tree working plan /
+  planning history; moved in-tree 2026-06-16 so the plan is version-controlled),
+  `bug_repros/` (the `.scad` + `README.md`; NOT the regenerable compiled
+  `bug_repros/out/`).
 - STAY UNTRACKED (large / regenerable / not ours to ship): `csg_external/` (the
   204-case corpus), `csg_out/`, `bug_repros/out/`, `csg_tests.tar`.
 
@@ -113,4 +115,6 @@ build/headless/bin/FreeCADCmd -t TestOpenSCADApp 2>&1 | grep -E 'Ran [0-9]+ test
   message stating the OpenSCAD semantic and the analytic expected value.
 - Commit messages end with:
   `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
-- The plan of record is `/root/.claude/plans/now-you-work-directly-snappy-kahan.md`.
+- The plan of record is in-tree at `/work/FreeCAD/BACKLOG.md` (tracked; moved
+  from the old local plan file on 2026-06-16). Append planning entries there as
+  work proceeds; the PR-writing stage strips/rewrites it.
