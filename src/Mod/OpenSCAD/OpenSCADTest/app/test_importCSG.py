@@ -566,6 +566,26 @@ cube(size = [2, 2, 2], center = false);
         self.assertAlmostEqual(roots[0].Shape.Volume, 8.0, 6)
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_offset_empty_child_is_empty(self):
+        # Category C (t2d__offset-tests): offset() of an empty/degenerate 2D
+        # region. square([0,0]) builds a null shape, and p_offset_action read
+        # subobj.Shape.Volume on it -> RuntimeError "shape is invalid", aborting
+        # the whole import. OpenSCAD renders offset() of an empty region as
+        # empty; the sibling cube (vol 27) must survive.
+        csg = """
+offset(r = 1, $fn = 0, $fa = 12, $fs = 2) {
+	square(size = [0, 0], center = false);
+}
+cube(size = [3, 3, 3], center = false);
+"""
+        doc = self.utility_create_csg(csg, "offset_empty_child")
+        self.assertEqual(len(doc.RootObjects), 1,
+                         [o.Name for o in doc.RootObjects])
+        roots = self.utility_solid_roots(doc)
+        self.assertEqual(len(roots), 1)
+        self.assertAlmostEqual(roots[0].Shape.Volume, 27.0, 6)
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_circle_not_leaked(self):
         # p_circle_action used to create the 'circle' object and then shadow
         # it with a second Draft.makeCircle object, orphaning the first as an

@@ -450,6 +450,16 @@ def p_offset_action(p):
     if 'delta' in p[3]:
         offset = float(p[3]['delta'])
     checkObjShape(subobj)
+    if subobj.Shape.isNull():
+        # offset() of an empty/degenerate 2D region (e.g. square([0,0]), which
+        # builds a null shape) is empty in OpenSCAD -- offsetting nothing yields
+        # nothing. Reading .Volume on the null shape would raise "shape is
+        # invalid" and abort the whole import, so consume the subtree and return
+        # empty (matching the childless-offset and 3D-child-ignored paths).
+        if printverbose: print("offset of empty region -> empty result")
+        removesubtree([subobj])
+        p[0] = []
+        return
     if subobj.Shape.Volume == 0 :
         # normalize the 2D region first: merge boolean face fragments and
         # split single-edge full-circle wires, both of which break

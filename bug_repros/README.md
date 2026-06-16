@@ -43,3 +43,4 @@ several Phase 1–3 defects (one repro per constituent defect).
 | 25 | `25_resize_negative_newsize.scad` | `resize()` negative newsize scaled by negative ratio (mirror) instead of unchanged | `561edf6ebe` |
 | 26 | `26_resize_auto_scale.scad` | `resize()` auto-scale used X target / clobbered explicit axis (≠ OpenSCAD max-factor rule) | `07d36bceee` |
 | 27 | `27_linear_extrude_twist_line_collapse.scad` | `linear_extrude(twist=180, scale=[0,1])` single-wire line-collapse → null (MakePipeShell) | `e3b64af870` |
+| 28 | `28_offset_empty_child.scad` | `offset(){ square([0,0]) }` null child → `.Volume` "shape is invalid" aborted import | `<C2-HASH>` |
