@@ -78,6 +78,9 @@ def _emit_human(result):
                          % result.get("error"))
         else:
             lines.append("OK wrote %s" % what)
+    elif cat == "empty":
+        lines.append("EMPTY %s" % result["input"])
+        lines.append("  %s" % result.get("message"))
     elif cat == "unsupported":
         lines.append("SKIP %s" % result["input"])
         lines.append("  unsupported: %s" % result.get("message"))
@@ -170,7 +173,17 @@ def main():
     roots = [o for o in doc.RootObjects if hasattr(o, "Shape")]
     result["stage"] = "empty-result"
     if not roots:
+        # The import succeeded (no exception) but the model evaluated to no
+        # geometry -- e.g. a linear_extrude of an empty body, or polygon(undef).
+        # That is a legitimately EMPTY model (OpenSCAD renders it empty too), not
+        # a conversion failure: there is simply nothing to export. Classify it as
+        # its own friendly 'empty' category rather than a hard error. (A model
+        # that SHOULD have had geometry but came out empty is caught separately
+        # by the volume comparison in validate.py, not here.)
         result["error"] = "document has no root objects with a Shape"
+        result["category"] = "empty"
+        result["message"] = ("the model evaluated to no geometry (empty result)"
+                             " -- nothing to convert")
         emit(result)
         return 1
     try:
@@ -199,8 +212,14 @@ def main():
     result["leaked_2d_roots"] = [o.Label for o in leaked]
     exportable = solid_roots or [o for o in roots if not o.Shape.isNull()]
     if not exportable:
+        # roots exist but every one is a null shape -> the model evaluated to no
+        # geometry. Same legitimately-empty case as the no-roots branch above
+        # (nothing to export); classify it 'empty', not a hard error.
         result["stage"] = "invalid-shape"
         result["error"] = "all root shapes are null"
+        result["category"] = "empty"
+        result["message"] = ("the model evaluated to no geometry (all shapes"
+                             " empty) -- nothing to convert")
         emit(result)
         return 1
 

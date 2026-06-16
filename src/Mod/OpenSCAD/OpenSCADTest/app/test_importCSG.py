@@ -691,6 +691,40 @@ union() {
         self.assertEqual(nulls, [], [o.Name for o in nulls])
         FreeCAD.closeDocument(doc.Name)
 
+    def test_import_linear_extrude_empty_body_is_empty(self):
+        # Category C (roundany__shell2d): linear_extrude of an empty body (a
+        # multmatrix with no child block) evaluates to no geometry, exactly as
+        # OpenSCAD renders it. The importer must produce zero shaped roots (and
+        # no stray null roots) without raising -- the csg2step driver then
+        # reports this as an 'empty' model rather than a hard error.
+        csg = """
+linear_extrude(height = 1, center = false, convexity = 1, scale = [1, 1], $fn = 0, $fa = 12, $fs = 2) {
+	multmatrix([[1, 0, 0, 0], [0, 1, 0, -10], [0, 0, 1, 0], [0, 0, 0, 1]]);
+}
+"""
+        doc = self.utility_create_csg(csg, "linear_extrude_empty_body")
+        shaped = [o for o in doc.RootObjects
+                  if hasattr(o, "Shape") and not o.Shape.isNull()]
+        self.assertEqual(shaped, [], [o.Name for o in shaped])
+        FreeCAD.closeDocument(doc.Name)
+
+    def test_import_linear_extrude_polygon_undef_is_empty(self):
+        # Category C (roundany__polyround): linear_extrude of
+        # polygon(points=undef) -- the polygon is empty (205a619b6a), so the
+        # extrude body is empty and the whole model evaluates to no geometry, as
+        # OpenSCAD renders it. Zero shaped roots, no exception; the driver
+        # reports 'empty', not an error.
+        csg = """
+linear_extrude(height = 3, center = false, convexity = 1, scale = [1, 1], $fn = 0, $fa = 12, $fs = 2) {
+	polygon(points = undef, paths = undef, convexity = 1);
+}
+"""
+        doc = self.utility_create_csg(csg, "linear_extrude_polygon_undef")
+        shaped = [o for o in doc.RootObjects
+                  if hasattr(o, "Shape") and not o.Shape.isNull()]
+        self.assertEqual(shaped, [], [o.Name for o in shaped])
+        FreeCAD.closeDocument(doc.Name)
+
     def test_import_non_finite_dimension(self):
         # Priority A: OpenSCAD emits inf/nan (e.g. from 1/0) as bare tokens in
         # compiled CSG, and its reader treats them as an unknown variable ->

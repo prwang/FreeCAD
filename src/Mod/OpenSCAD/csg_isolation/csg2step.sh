@@ -8,6 +8,7 @@
 #   0  converted     (STEP written; a '!' line means written but some shapes
 #                     are geometrically invalid)
 #   2  unsupported    (e.g. text()/imported DXF, or a missing referenced file)
+#   3  empty model    (the model evaluated to no geometry; nothing to convert)
 #   1  conversion error
 #   64 usage error
 #
@@ -82,5 +83,6 @@ fi
 case "$status" in
   ok|suspect) printf '%s\n' "$block"; exit 0 ;;
   unsupported) printf '%s\n' "$block" >&2; exit 2 ;;
+  empty) printf '%s\n' "$block" >&2; exit 3 ;;
   *) printf '%s\n' "$block" >&2; exit 1 ;;
 esac
