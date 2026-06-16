@@ -695,6 +695,29 @@ def unifyFaces(obj):
         obj.ViewObject.hide()
     return newobj
 
+def repair2DFaces(shape):
+    """Return a valid version of an invalid 2D face so OCC can use it in a
+    boolean. A face accumulated from a long chain of unions of overlapping 2D
+    regions can come out geometrically invalid (mis-oriented inner wires), which
+    OCC rejects with "Unorientable shape"/"Bad orientation of sub-shape" and the
+    whole boolean aborts. ShapeFix (on a mutable copy) reorients the wires while
+    preserving holes; only if that fails do we fall back to the outer boundary
+    (dropping inner wires). Valid faces and non-face shapes pass through
+    unchanged."""
+    try:
+        if shape.ShapeType != 'Face' or shape.isValid():
+            return shape
+        fixed = shape.copy()
+        fixed.fix(1e-7, 1e-7, 1e-7)
+        if fixed.isValid():
+            return fixed
+        outer = Part.Face(shape.OuterWire)
+        if outer.isValid():
+            return outer
+    except Exception:
+        pass
+    return shape
+
 def fuse(lst,name):
     global doc
     if printverbose: print("Fuse")
@@ -728,7 +751,32 @@ def fuse(lst,name):
         myfuse = addBoolean('Part::Fuse',name)
         myfuse.Base = lst[0]
         myfuse.Tool = lst[1]
-        myfuse.Shape = myfuse.Base.Shape.fuse(myfuse.Tool.Shape)
+        try:
+            myfuse.Shape = myfuse.Base.Shape.fuse(myfuse.Tool.Shape)
+        except Exception:
+            # An operand 2D face can come out geometrically invalid from a long
+            # chain of unions of overlapping faces (e.g. module_recursion's
+            # fractal canopy: a multi-wire face OCC reports "Unorientable") and
+            # the exact boolean aborts the whole import. Repair the invalid
+            # operand(s) and retry; if the retry still fails the original error
+            # propagates (we do not mask unrelated failures). Bake the result
+            # into a static Part::Feature and consume the two child subtrees, so
+            # the final document recompute does not re-run the (parametric)
+            # failing boolean (which would re-raise / null it) and the baked
+            # operands do not linger as stray roots.
+            result = repair2DFaces(myfuse.Base.Shape).fuse(
+                     repair2DFaces(myfuse.Tool.Shape))
+            # decide 2D-ness from the (valid) result, not the operands: the
+            # invalid operand's .Volume is unreliable
+            two_d = (not result.isNull() and result.Volume == 0)
+            doc.removeObject(myfuse.Name)
+            removesubtree(lst)
+            myfuse = doc.addObject('Part::Feature', name)
+            myfuse.Shape = result
+            myfuse.Placement = FreeCAD.Placement()
+            if two_d:
+                myfuse = unifyFaces(myfuse)
+            return myfuse
         if gui:
             myfuse.Base.ViewObject.hide()
             myfuse.Tool.ViewObject.hide()

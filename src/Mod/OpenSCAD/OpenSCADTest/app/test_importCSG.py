@@ -691,6 +691,40 @@ union() {
         self.assertEqual(nulls, [], [o.Name for o in nulls])
         FreeCAD.closeDocument(doc.Name)
 
+    def test_repair_invalid_2d_face_for_fuse(self):
+        # Category C (ex__module_recursion): a long chain of unions of
+        # overlapping 2D faces can leave an operand face geometrically invalid
+        # (mis-oriented inner wires); OCC then aborts the exact boolean with
+        # "Unorientable shape"/"Bad orientation of sub-shape", killing the whole
+        # import. repair2DFaces() reorients such a face (ShapeFix on a mutable
+        # copy) so the boolean succeeds, preserving holes.
+        #
+        # Build a square([0,0]..[10,10]) with a same-orientation inner wire (a
+        # hole that is NOT reversed) -> an invalid face that fuse() rejects. The
+        # repair must yield a valid face of area 64 (100 - the 6x6 hole) and the
+        # previously-failing fuse must then succeed.
+        import Part
+        V = FreeCAD.Vector
+        outer = Part.makePolygon([V(0, 0, 0), V(10, 0, 0), V(10, 10, 0),
+                                  V(0, 10, 0), V(0, 0, 0)])
+        inner = Part.makePolygon([V(2, 2, 0), V(8, 2, 0), V(8, 8, 0),
+                                  V(2, 8, 0), V(2, 2, 0)])
+        bad = Part.Face([outer, inner])
+        self.assertFalse(bad.isValid())
+        # the exact boolean fails on the invalid operand (the C5 symptom)
+        sq = Part.makePlane(5, 5, V(5, 5, 0))
+        self.assertRaises(Exception, bad.fuse, sq)
+        # repair reorients it: valid, hole preserved (area 64), fuse now works
+        fixed = importCSG.repair2DFaces(bad)
+        self.assertTrue(fixed.isValid())
+        self.assertAlmostEqual(fixed.Area, 64.0, delta=1e-6)
+        self.assertTrue(fixed.fuse(sq).isValid())
+        # a valid face / a non-face must pass through untouched
+        good = Part.makePlane(4, 4, V(0, 0, 0))
+        self.assertIs(importCSG.repair2DFaces(good), good)
+        box = Part.makeBox(1, 1, 1)
+        self.assertIs(importCSG.repair2DFaces(box), box)
+
     def test_import_linear_extrude_empty_body_is_empty(self):
         # Category C (roundany__shell2d): linear_extrude of an empty body (a
         # multmatrix with no child block) evaluates to no geometry, exactly as
