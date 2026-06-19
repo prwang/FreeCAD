@@ -468,7 +468,7 @@ class PostProcessor:
                 "name": "parameter_order",
                 "type": "text",  # one line
                 "label": translate("CAM", "Generated Parameter Order for GCode"),
-                "default": "XYZABCFSIJTQRP",  # FIXME: only list `supported`
+                "default": "XYZABCFSIJTQRPH",  # FIXME: only list `supported`
                 "help": translate("CAM", "Generated Parameter Order for GCode for output"),
             },
             {
@@ -2403,6 +2403,7 @@ class PostProcessor:
         # Format parameters with clean, stateless implementation
         parameter_order = self.values.get(
             "PARAMETER_ORDER",
+            # FIXME: dry
             ["X", "Y", "Z", "A", "B", "C", "F", "I", "J", "K", "R", "Q", "P", "S", "T"],
         )
 
